@@ -49,7 +49,11 @@ def consultar_aluno_por_email(email):
             aluno['status_simplificado'] = status
         
         print()
-        return aluno
+        if not aluno:
+            return 0, status
+        else:
+            return aluno, status
+        
         
     except Exception as e:
         print(f"✗ Erro ao consultar: {str(e)}\n")
