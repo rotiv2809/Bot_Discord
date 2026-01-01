@@ -1,7 +1,23 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+import discord
+from datetime import datetime
+from scripts.utils import salvar_questao_local
 import asyncio
+from scripts.views import FavoritoButton, StatusQuestaoButton
+
+
+MATERIAS_CANAIS = {
+    "Matemática": 1437144074779099328,
+    "Física": 1437144607426084894,
+    "Química": 1431724171607412920,
+    "Humanas": 1437144849110532219,
+    "Linguagens": 1450565544620200067,
+    "Outros": 1450565643983126558
+}
+
+CANAL_FAVORITOS_ID = 1451670988243861676
 
 def setup_commands(context):
     """Registra todos os comandos slash do bot"""
@@ -79,26 +95,110 @@ def setup_commands(context):
         materia="Matéria da questão",
         imagem="Envie uma imagem da questão (opcional)"
     )
+    @app_commands.choices(materia=[
+        app_commands.Choice(name="Matemática", value="Matemática"),
+        app_commands.Choice(name="Física", value="Física"),
+        app_commands.Choice(name="Química", value="Química"),
+        app_commands.Choice(name="Humanas", value="Humanas"),
+        app_commands.Choice(name="Linguagens", value="Linguagens"),
+        app_commands.Choice(name="Outros", value="Outros")
+    ])
     async def criarquestao(
         interaction: discord.Interaction,
         descricao: str,
         materia: str,
         imagem: discord.Attachment | None = None
     ):
-        # Resposta imediata (obrigatória)
         await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Processar e salvar imagem se fornecida
+            imagem_path = None
+            if imagem:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                imagem_filename = f"{interaction.user.id}_{timestamp}_{imagem.filename}"
+                imagem_path = f"uploads/{imagem_filename}"
+                await imagem.save(imagem_path)
+            
+            # Salvar dados localmente
+            arquivo_questao = salvar_questao_local(
+                interaction.user.id,
+                str(interaction.user),
+                descricao,
+                materia,
+                imagem_path
+            )
+            
+            # Obter o canal correto baseado na matéria
+            canal_id = MATERIAS_CANAIS.get(materia)
+            if not canal_id:
+                await interaction.followup.send(
+                    "❌ Matéria não encontrada nos canais configurados.",
+                    ephemeral=True
+                )
+                return
+            
+            canal = bot.get_channel(canal_id)
+            if not canal:
+                await interaction.followup.send(
+                    "❌ Canal não encontrado. Verifique as permissões do bot.",
+                    ephemeral=True
+                )
+                return
+            
+            # Criar embed para o tópico
+            embed = discord.Embed(
+                title=f"📚 Dúvida de {materia}",
+                description=descricao,
+                color=discord.Color.blue(),
+                timestamp=datetime.now()
+            )
+            embed.set_author(
+                name=str(interaction.user),
+                icon_url=interaction.user.display_avatar.url
+            )
+            
+            if imagem:
+                embed.set_image(url=imagem.url)
+            
+            embed.set_footer(text=f"ID do usuário: {interaction.user.id}")
+            
+            # Criar a view com o botão de favoritar
+            view = FavoritoButton()
+            
+            # Criar o tópico no canal COM O BOTÃO
+            mensagem = await canal.send(embed=embed, view=view)
+            
+            # Criar thread (tópico) a partir da mensagem
+            thread = await mensagem.create_thread(
+                name=f"{materia} - {interaction.user.name}",
+                auto_archive_duration=1440  # 24 horas
+            )
 
-        # Processamento
-        resposta = f"📘 **Questão criada**\n\n"
-        resposta += f"**Descrição:** {descricao}\n"
-        resposta += f"**Matéria:** {materia}\n"
+            # Adicionar o usuário ao tópico
+            await thread.add_user(interaction.user)
 
-        if imagem:
-            resposta += f"\n🖼️ **Imagem recebida:** {imagem.filename}\n"
-            resposta += f"URL: {imagem.url}"
-
-            # Exemplo: salvar a imagem localmente
-            await imagem.save(f"uploads/{imagem.filename}")
-
-        await interaction.followup.send(resposta)
+            # ENVIA OS BOTÕES DENTRO DO THREAD TAMBÉM
+            mensagem_thread = await thread.send(
+                "Use os botões abaixo para gerenciar esta questão:",
+                view=StatusQuestaoButton()
+            )
+            
+            # Resposta de sucesso
+            resposta = f"✅ **Questão criada com sucesso!**\n\n"
+            resposta += f"📁 **Dados salvos em:** `{arquivo_questao}`\n"
+            resposta += f"📝 **Matéria:** {materia}\n"
+            resposta += f"💬 **Tópico criado:** {thread.mention}\n"
+            
+            if imagem:
+                resposta += f"🖼️ **Imagem salva:** `{imagem_path}`\n"
+            
+            await interaction.followup.send(resposta, ephemeral=True)
+            
+        except Exception as e:
+            await interaction.followup.send(
+                f"❌ Erro ao criar questão: {str(e)}",
+                ephemeral=True
+            )
+            print(f"Erro em criarquestao: {e}")
     
