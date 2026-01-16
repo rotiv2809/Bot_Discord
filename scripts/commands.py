@@ -1,8 +1,10 @@
 import discord
+from discord import app_commands
+from discord.ext import commands
+import discord
+from datetime import datetime
 import asyncio
-<<<<<<< Updated upstream
-from scripts.views import BotoesQuestaoView
-=======
+from scripts.utils import salvar_questao_local
 from scripts.views import FavoritoButton, StatusQuestaoButton, StatusQuestaoView
 
 
@@ -16,7 +18,6 @@ MATERIAS_CANAIS = {
 }
 
 CANAL_FAVORITOS_ID = 1451670988243861676
->>>>>>> Stashed changes
 
 def setup_commands(context):
     """Registra todos os comandos slash do bot"""
@@ -87,37 +88,29 @@ def setup_commands(context):
         await interaction.response.send_message("🗑️ Fechando ticket em 3 segundos...")
         await asyncio.sleep(3)
         await interaction.channel.delete()
-    
-    @bot.tree.command(name="criar_questao", description="Criar uma nova questão para o sistema")
-    async def criar_questao(interaction: discord.Interaction):
-        """Comando para iniciar a criação de uma questão"""
-        user_id = interaction.user.id
         
-        # Inicializa os dados da questão
-        questoes_em_criacao[user_id] = {}
+    @bot.tree.command(name="criarquestao", description="Cria uma nova questão")
+    @app_commands.describe(
+        descricao="Descrição da questão",
+        materia="Matéria da questão",
+        imagem="Envie uma imagem da questão (opcional)"
+    )
+    @app_commands.choices(materia=[
+        app_commands.Choice(name="Matemática", value="Matemática"),
+        app_commands.Choice(name="Física", value="Física"),
+        app_commands.Choice(name="Química", value="Química"),
+        app_commands.Choice(name="Humanas", value="Humanas"),
+        app_commands.Choice(name="Linguagens", value="Linguagens"),
+        app_commands.Choice(name="Outros", value="Outros")
+    ])
+    async def criarquestao(
+        interaction: discord.Interaction,
+        descricao: str,
+        materia: str,
+        imagem: discord.Attachment | None = None
+    ):
+        await interaction.response.defer(ephemeral=True)
         
-<<<<<<< Updated upstream
-        # Cria o embed inicial
-        embed = discord.Embed(
-            title="📋 Criar Nova Questão",
-            description="Preencha os campos abaixo para criar uma questão:",
-            color=discord.Color.blue()
-        )
-        
-        embed.add_field(name="📝 Descrição", value="*Não preenchido*", inline=False)
-        embed.add_field(name="🖼️ Imagem", value="*Não preenchido*", inline=True)
-        embed.add_field(name="📚 Matéria", value="*Não preenchido*", inline=True)
-        embed.add_field(name="⭐ Nível", value="*Não preenchido*", inline=True)
-        embed.add_field(name="🏷️ Etiqueta", value="*Não preenchido*", inline=True)
-        
-        embed.set_footer(text="Clique nos botões abaixo para preencher cada campo")
-        
-        # Cria a view com os botões
-        view = BotoesQuestaoView(user_id, questoes_em_criacao)
-        
-        await interaction.response.send_message(embed=embed, view=view)
-        print(f"✅ {interaction.user} iniciou criação de questão")
-=======
         try:
             # GERA TOKEN ÚNICO
             import random
@@ -214,4 +207,3 @@ def setup_commands(context):
             )
             print(f"Erro em criarquestao: {e}")
     
->>>>>>> Stashed changes
