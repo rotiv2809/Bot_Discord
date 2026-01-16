@@ -8,6 +8,10 @@ import asyncio
 import sys
 import os
 import random
+<<<<<<< Updated upstream
+=======
+from scripts.views import StatusQuestaoView, FavoritoButtonResolvidas
+>>>>>>> Stashed changes
 
 
 ID_DO_CANAL_VERIFICACOES = 1450481303354081331
@@ -57,6 +61,29 @@ async def on_ready():
     print(f"🌐 Servidores: {len(bot.guilds)}")
     print(f"🔢 Instância: {INSTANCE_ID}")
     print(f"{'=' * 50}\n")
+<<<<<<< Updated upstream
+=======
+    
+    # Setup de comandos e eventos
+    setup_commands(bot_context)
+    setup_events(bot_context)
+    
+    # ===== REGISTRAR VIEWS PERSISTENTES =====
+    # As views precisam ser registradas para funcionar após restart
+    # Como não sabemos quais tokens existem, registramos views "dummy"
+    # que o Discord.py vai usar como template
+    
+    print("⭐ Registrando sistema de favoritos...")
+    
+    # View para questões abertas (com select + botão favoritar)
+    bot.add_view(StatusQuestaoView(token="PLACEHOLDER"))
+    
+    # View para questões resolvidas (só botão favoritar)
+    bot.add_view(FavoritoButtonResolvidas(token="PLACEHOLDER"))
+    
+    print("✅ Sistema de favoritos carregado!")
+    
+>>>>>>> Stashed changes
     try:
         synced = await bot.tree.sync()
         print(f"🌿 Slash commands sincronizados ({len(synced)} comandos).")

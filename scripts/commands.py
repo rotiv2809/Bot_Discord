@@ -1,6 +1,22 @@
 import discord
 import asyncio
+<<<<<<< Updated upstream
 from scripts.views import BotoesQuestaoView
+=======
+from scripts.views import FavoritoButton, StatusQuestaoButton, StatusQuestaoView
+
+
+MATERIAS_CANAIS = {
+    "Matemática": 1437144074779099328,
+    "Física": 1437144607426084894,
+    "Química": 1431724171607412920,
+    "Humanas": 1437144849110532219,
+    "Linguagens": 1450565544620200067,
+    "Outros": 1450565643983126558
+}
+
+CANAL_FAVORITOS_ID = 1451670988243861676
+>>>>>>> Stashed changes
 
 def setup_commands(context):
     """Registra todos os comandos slash do bot"""
@@ -80,6 +96,7 @@ def setup_commands(context):
         # Inicializa os dados da questão
         questoes_em_criacao[user_id] = {}
         
+<<<<<<< Updated upstream
         # Cria o embed inicial
         embed = discord.Embed(
             title="📋 Criar Nova Questão",
@@ -100,3 +117,101 @@ def setup_commands(context):
         
         await interaction.response.send_message(embed=embed, view=view)
         print(f"✅ {interaction.user} iniciou criação de questão")
+=======
+        try:
+            # GERA TOKEN ÚNICO
+            import random
+            import string
+            letras = ''.join(random.choices(string.ascii_uppercase, k=2))
+            numeros = ''.join(random.choices(string.digits, k=2))
+            token = f"Q-{letras}{numeros}"
+            
+            # Processar e salvar imagem se fornecida
+            imagem_path = None
+            if imagem:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                imagem_filename = f"{interaction.user.id}_{timestamp}_{imagem.filename}"
+                imagem_path = f"uploads/{imagem_filename}"
+                await imagem.save(imagem_path)
+            
+            # Salvar dados localmente
+            arquivo_questao = salvar_questao_local(
+                interaction.user.id,
+                str(interaction.user),
+                descricao,
+                materia,
+                imagem_path
+            )
+            
+            # Obter o canal correto baseado na matéria
+            canal_id = MATERIAS_CANAIS.get(materia)
+            if not canal_id:
+                await interaction.followup.send(
+                    "❌ Matéria não encontrada nos canais configurados.",
+                    ephemeral=True
+                )
+                return
+            
+            canal = bot.get_channel(canal_id)
+            if not canal:
+                await interaction.followup.send(
+                    "❌ Canal não encontrado. Verifique as permissões do bot.",
+                    ephemeral=True
+                )
+                return
+            
+            # Criar embed para o tópico COM TOKEN
+            embed = discord.Embed(
+                title=f"📚 Dúvida de {materia}",
+                description=f"**🏷️ Token: `{token}`**\n\n{descricao}",
+                color=discord.Color.blue(),
+                timestamp=datetime.now()
+            )
+            embed.set_author(
+                name=str(interaction.user),
+                icon_url=interaction.user.display_avatar.url
+            )
+            
+            if imagem:
+                embed.set_image(url=imagem.url)
+            
+            embed.set_footer(text=f"Token: {token} • ID: {interaction.user.id}")
+            
+            # Criar a view com select menu e botão de favoritar
+            view = StatusQuestaoView(token)
+            
+            # Criar o tópico no canal COM A VIEW E TOKEN
+            mensagem = await canal.send(embed=embed, view=view)
+            
+            # Criar thread (tópico) a partir da mensagem
+            thread = await mensagem.create_thread(
+                name=f"{token} • {materia} - {interaction.user.name}",
+                auto_archive_duration=1440  # 24 horas
+            )
+
+            # Adicionar o usuário ao tópico
+            await thread.add_user(interaction.user)
+
+            # ENVIA A VIEW DENTRO DO THREAD TAMBÉM
+            await thread.send(view=StatusQuestaoView(token))
+            
+            # Resposta de sucesso
+            resposta = f"✅ **Questão criada com sucesso!**\n\n"
+            resposta += f"🏷️ **Token:** `{token}`\n"
+            resposta += f"📁 **Dados salvos em:** `{arquivo_questao}`\n"
+            resposta += f"📝 **Matéria:** {materia}\n"
+            resposta += f"💬 **Tópico criado:** {thread.mention}\n"
+            
+            if imagem:
+                resposta += f"🖼️ **Imagem salva:** `{imagem_path}`\n"
+            
+            await interaction.followup.send(resposta, ephemeral=True)
+            
+        except Exception as e:
+            await interaction.followup.send(
+                f"❌ Erro ao criar questão: {str(e)}",
+                ephemeral=True
+            )
+            print(f"Erro em criarquestao: {e}")
+    
+>>>>>>> Stashed changes
