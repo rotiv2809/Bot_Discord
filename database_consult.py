@@ -6,53 +6,32 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def consultar_aluno_por_email(email):
     """
-    Consulta se um email existe na base e verifica o status da inscrição
-    
-    Returns:
-        dict: Informações do aluno com status verificado ou None se não encontrado
+    Retorna:
+        ('active')    -> se QUALQUER assinatura estiver ativa
+        ('inactive')  -> se email existe, mas nenhuma assinatura ativa
+        None          -> se email não existe
     """
     try:
-        print(f"🔍 Buscando email: {email}")
-        
-        # Busca o email no Supabase
-        response = supabase.table('subscriptions')\
-            .select('*')\
-            .eq('contact_email', email)\
+        response = supabase.table('subscriptions') \
+            .select('last_status') \
+            .eq('contact_email', email) \
             .execute()
-        
-        # Verifica se encontrou algum resultado
-        if not response.data or len(response.data) == 0:
-            print(f"✗ Email não encontrado na base de dados\n")
-            return None
-        
-        # Pega o primeiro resultado
-        aluno = response.data[0]
-        
-        print(f"✓ Email encontrado!")
-        print(f"  Nome: {aluno.get('contact_name')}")
-        print(f"  Produto: {aluno.get('product_name')}")
-        
-        # Verifica o status
-        status = aluno.get('last_status')
-        
-        if status == 'active':
-            print(f"  ✅ Status: ACTIVE (Inscrição ativa)")
-            aluno['esta_ativo'] = True
-            aluno['status_simplificado'] = 'active'
-        elif status == 'canceled':
-            print(f"  ❌ Status: CANCELED (Inscrição cancelada)")
-            aluno['esta_ativo'] = False
-            aluno['status_simplificado'] = 'canceled'
-        else:
-            print(f"  ⚠️  Status: {status.upper()} (Outro status)")
-            aluno['esta_ativo'] = False
-            aluno['status_simplificado'] = status
-        
-        print()
-        if not aluno:
-            return 0, status
-        else:
-            return aluno, status
+
+        if not response.data:
+            return None  # email nunca comprou
+
+        statuses = [row.get("last_status") for row in response.data]
+
+        if "active" in statuses:
+            return "active"
+
+        return "inactive"  # já foi aluno, mas cancelou/expirou
+
+    except Exception as e:
+        print(f"❌ Erro ao consultar subscriptions: {e}")
+        return None
+
+
         
         
     except Exception as e:

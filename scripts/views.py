@@ -2,6 +2,8 @@ import discord
 from discord.ext import commands
 from discord import app_commands, ui
 from datetime import datetime
+from scripts.favoritos_store import adicionar_favorito, obter_favoritos, remover_favoritos
+
 import io
 
 MATERIAS_CANAIS = {
@@ -98,17 +100,14 @@ class GerenciarQuestaoSelect(ui.Select):
             
             # PEGA TODOS OS USUÁRIOS QUE REAGIRAM COM ⭐ (ANTES DE DELETAR!)
             usuarios_favoritaram = set()
-            try:
-                for reaction in mensagem_original.reactions:
-                    if str(reaction.emoji) == "⭐":
-                        async for user in reaction.users():
-                            if not user.bot:  # Ignora bots
-                                usuarios_favoritaram.add(user)
-                        break
-            except Exception as e:
-                print(f"Erro ao pegar reações: {e}")
-            
+            ids = obter_favoritos(token)
+            for user_id in ids:
+                member = interaction.guild.get_member(user_id)
+                if member and not member.bot:
+                    usuarios_favoritaram.add(member)
+
             print(f"📊 {len(usuarios_favoritaram)} usuários favoritaram a questão {token}")
+            
             
             # 1. COLETA TODAS AS MENSAGENS DO THREAD
             mensagens_texto = []
@@ -339,6 +338,9 @@ class GerenciarQuestaoSelect(ui.Select):
                         print(f"  ❌ Erro ao enviar para {user.name}: {e}")
                 
                 print(f"✅ Concluído! Enviado para favoritos de {len(usuarios_favoritaram)} usuários")
+                
+            # ✅ LIMPA FAVORITOS DESSE TOKEN
+            remover_favoritos(token)
             
             # 5. DELETA A QUESTÃO ORIGINAL
             try:
@@ -358,6 +360,8 @@ class GerenciarQuestaoSelect(ui.Select):
                 ephemeral=True
             )
             
+            #resumo = gerar_resumo_com_ia(texto_do_txt)
+            
         except Exception as e:
             await interaction.followup.send(f"❌ Erro: {str(e)}", ephemeral=True)
             print(f"Erro ao marcar resolvida: {e}")
@@ -374,6 +378,9 @@ class GerenciarQuestaoSelect(ui.Select):
         
         import asyncio
         await asyncio.sleep(5)
+        
+        # ✅ LIMPA FAVORITOS DESSE TOKEN
+        remover_favoritos(self.token)
         
         try:
             await mensagem_original.delete()
@@ -395,6 +402,8 @@ class StatusQuestaoView(ui.View):
         
         try:
             token = self.token
+            adicionar_favorito(token, interaction.user.id)
+
             
             # Busca a mensagem original para adicionar reação
             mensagem_original = None
@@ -409,14 +418,6 @@ class StatusQuestaoView(ui.View):
             elif hasattr(interaction.message, 'thread') and interaction.message.thread:
                 mensagem_original = interaction.message
                 thread = interaction.message.thread
-            
-            # ADICIONA REAÇÃO ⭐ NA MENSAGEM ORIGINAL
-            if mensagem_original:
-                try:
-                    await mensagem_original.add_reaction("⭐")
-                    print(f"⭐ Reação adicionada por {interaction.user.name} na questão {token}")
-                except Exception as e:
-                    print(f"Erro ao adicionar reação: {e}")
             
             # Identifica a matéria
             materia = None
@@ -540,13 +541,6 @@ class StatusQuestaoView(ui.View):
                 )
             
             # LINK COM BUSCA NO CANAL RESOLVIDAS
-            if canal_resolvidas:
-                embed.add_field(
-                    name="🔍 Buscar quando resolvida",
-                    value=f"Token: `{token}`\n[Ir para {canal_resolvidas.mention}]({canal_resolvidas.jump_url})\n"
-                          f"Use Ctrl+F e busque por `{token}`",
-                    inline=False
-                )
             
             embed.add_field(
                 name="🔗 Link Atual",
@@ -561,10 +555,7 @@ class StatusQuestaoView(ui.View):
             
             await interaction.followup.send(
                 f"✅ **`{token}` favoritada em {thread_fav.mention}!**\n\n"
-                f"📸 Snapshot salvo\n"
-                f"⭐ Reação adicionada\n"
-                f"🔔 Você receberá notificação quando resolvida\n"
-                f"🔍 Use o token para buscar nas resolvidas",
+                f"🔔 Você receberá notificação quando resolvida\n",
                 ephemeral=True
             )
             

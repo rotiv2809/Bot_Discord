@@ -4,7 +4,7 @@ from discord.ext import commands
 import discord
 from datetime import datetime
 import asyncio
-from scripts.utils import salvar_questao_local
+from scripts.utils import salvar_questao_local, usuario_ja_perguntou_hoje
 from scripts.views import FavoritoButton, StatusQuestaoButton, StatusQuestaoView
 
 
@@ -111,6 +111,16 @@ def setup_commands(context):
     ):
         await interaction.response.defer(ephemeral=True)
         
+        # 🔒 Limite de 1 pergunta por dia
+        # if usuario_ja_perguntou_hoje(interaction.user.id):
+        #     await interaction.followup.send(
+        #         "⛔ **Limite diário atingido!**\n\n"
+        #         "Você já fez uma pergunta hoje.\n"
+        #         "Tente novamente amanhã!",
+        #         ephemeral=True
+        #     )
+        #     return
+
         try:
             # GERA TOKEN ÚNICO
             import random
@@ -185,8 +195,6 @@ def setup_commands(context):
             # Adicionar o usuário ao tópico
             await thread.add_user(interaction.user)
 
-            # ENVIA A VIEW DENTRO DO THREAD TAMBÉM
-            await thread.send(view=StatusQuestaoView(token))
             
             # Resposta de sucesso
             resposta = f"✅ **Questão criada com sucesso!**\n\n"
