@@ -42,27 +42,79 @@ class GerenciarQuestaoSelect(ui.Select):
         try:
             thread = None
             mensagem_original = None
+            
+            # ✅ NOVA LÓGICA: Detectar thread corretamente
+            # Caso 1: Interação aconteceu DENTRO da thread
             if isinstance(interaction.channel, discord.Thread):
                 thread = interaction.channel
+                print(f"🔍 Thread detectada: {thread.name} (ID: {thread.id})")
+                
+                # Buscar mensagem original que criou a thread
                 async for msg in thread.parent.history(limit=100):
                     if hasattr(msg, 'thread') and msg.thread and msg.thread.id == thread.id:
                         mensagem_original = msg
+                        print(f"✅ Mensagem original encontrada: {msg.id}")
                         break
+            
+            # Caso 2: Interação aconteceu na mensagem que TEM thread
             elif hasattr(interaction.message, 'thread') and interaction.message.thread:
                 thread = interaction.message.thread
                 mensagem_original = interaction.message
+                print(f"🔍 Thread da mensagem: {thread.name} (ID: {thread.id})")
+            
+            # Caso 3: Tentar pegar do canal pai
+            else:
+                # Tenta buscar thread pelo token
+                canal_pai = interaction.channel
+                if hasattr(canal_pai, 'parent'):
+                    canal_pai = canal_pai.parent
+                
+                print(f"🔍 Buscando thread no canal: {canal_pai.name if canal_pai else 'None'}")
+                
+                # Busca threads ativas
+                if canal_pai:
+                    for t in canal_pai.threads:
+                        if self.token in t.name:
+                            thread = t
+                            print(f"✅ Thread encontrada por token: {thread.name}")
+                            
+                            # Buscar mensagem original
+                            async for msg in canal_pai.history(limit=100):
+                                if hasattr(msg, 'thread') and msg.thread and msg.thread.id == thread.id:
+                                    mensagem_original = msg
+                                    break
+                            break
+            
+            # ❌ Se ainda não encontrou
             if not thread:
-                await interaction.followup.send("❌ Thread não encontrado!", ephemeral=True)
+                print(f"❌ Thread não encontrada! Canal: {interaction.channel}")
+                print(f"❌ Tipo do canal: {type(interaction.channel)}")
+                print(f"❌ Token: {self.token}")
+                await interaction.followup.send(
+                    f"❌ **Thread não encontrada!**\n\n"
+                    f"🔍 Debug Info:\n"
+                    f"- Token: `{self.token}`\n"
+                    f"- Canal: {interaction.channel.mention if hasattr(interaction.channel, 'mention') else 'N/A'}\n"
+                    f"- Tipo: `{type(interaction.channel).__name__}`\n\n"
+                    f"Tente usar o botão dentro da thread da questão.",
+                    ephemeral=True
+                )
                 return
+            
+            # Se não encontrou mensagem original, usa a mensagem da interação
             if not mensagem_original:
                 mensagem_original = interaction.message
+                print(f"⚠️ Usando mensagem da interação como fallback")
+            
+            # ✅ Continua com o código normal
             if self.values[0] == "resolver":
                 await self.marcar_resolvida(interaction, thread, mensagem_original)
             elif self.values[0] == "deletar":
                 await self.deletar_questao(interaction, thread, mensagem_original)
+                
         except Exception as e:
             await interaction.followup.send(f"❌ Erro: {str(e)}", ephemeral=True)
-            print(f"Erro no select: {e}")
+            print(f"❌ Erro no select: {e}")
             import traceback
             traceback.print_exc()
     
