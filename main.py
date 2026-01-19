@@ -5,8 +5,10 @@ from dados import DISCORD_TOKEN, SUPABASE_KEY, SUPABASE_URL, ROLE_ID_ALUNO
 import sys
 import random
 from scripts.views import StatusQuestaoView, FavoritoButtonResolvidas
-
-# Importa os módulos organizados
+from scripts.drive_uploader import set_drive_service
+from googleapiclient.discovery import build
+from google.oauth2.service_account import Credentials
+from scripts.drive_uploader import set_drive_service
 from scripts.events import setup_events
 from scripts.commands import setup_commands
 
@@ -53,6 +55,18 @@ bot_context = {
     'ID_CANAL_ENVIAR_QUESTOES': ID_CANAL_ENVIAR_QUESTOES
 }
 
+SCOPES = ["https://www.googleapis.com/auth/drive"]
+
+credentials = Credentials.from_service_account_file(
+    "service_account.json",
+    scopes=SCOPES
+)
+
+service = build("drive", "v3", credentials=credentials)
+
+set_drive_service(service)
+
+
 @bot.event
 async def on_ready():
     print(f"\n{'=' * 50}")
@@ -61,26 +75,26 @@ async def on_ready():
     print(f"🌐 Servidores: {len(bot.guilds)}")
     print(f"🔢 Instância: {INSTANCE_ID}")
     print(f"{'=' * 50}\n")
-    
+
     # Setup de comandos e eventos
     setup_commands(bot_context)
     setup_events(bot_context)
-    
+
     # ===== REGISTRAR VIEWS PERSISTENTES =====
     # As views precisam ser registradas para funcionar após restart
     # Como não sabemos quais tokens existem, registramos views "dummy"
     # que o Discord.py vai usar como template
-    
+
     print("⭐ Registrando sistema de favoritos...")
-    
+
     # View para questões abertas (com select + botão favoritar)
     bot.add_view(StatusQuestaoView(token="PLACEHOLDER"))
-    
+
     # View para questões resolvidas (só botão favoritar)
     bot.add_view(FavoritoButtonResolvidas(token="PLACEHOLDER"))
-    
+
     print("✅ Sistema de favoritos carregado!")
-    
+
     try:
         synced = await bot.tree.sync()
         print(f"🌿 Slash commands sincronizados ({len(synced)} comandos):")
@@ -91,7 +105,7 @@ async def on_ready():
 
 if __name__ == "__main__":
     print("🚀 Iniciando serviços...\n")
-    
+
     try:
         bot.run(DISCORD_TOKEN)
     except discord.LoginFailure:

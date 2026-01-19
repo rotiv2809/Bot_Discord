@@ -1,0 +1,6 @@
+resumos/
+uploads/
+__pycache__/
+*.pyc
+.env.local
+.git/

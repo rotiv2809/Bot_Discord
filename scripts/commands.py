@@ -12,8 +12,12 @@ MATERIAS_CANAIS = {
     "Matemática": 1437144074779099328,
     "Física": 1437144607426084894,
     "Química": 1431724171607412920,
-    "Humanas": 1437144849110532219,
-    "Linguagens": 1450565544620200067,
+
+    "História": 1462861471758422147,
+    "Geografia": 1462861526493958285,
+    "Português": 1462861348458463253,
+    "Inglês": 1462861408214585509,
+
     "Outros": 1450565643983126558
 }
 
@@ -96,13 +100,18 @@ def setup_commands(context):
         imagem="Envie uma imagem da questão (opcional)"
     )
     @app_commands.choices(materia=[
-        app_commands.Choice(name="Matemática", value="Matemática"),
-        app_commands.Choice(name="Física", value="Física"),
-        app_commands.Choice(name="Química", value="Química"),
-        app_commands.Choice(name="Humanas", value="Humanas"),
-        app_commands.Choice(name="Linguagens", value="Linguagens"),
-        app_commands.Choice(name="Outros", value="Outros")
+    app_commands.Choice(name="Matemática", value="Matemática"),
+    app_commands.Choice(name="Física", value="Física"),
+    app_commands.Choice(name="Química", value="Química"),
+
+    app_commands.Choice(name="História", value="História"),
+    app_commands.Choice(name="Geografia", value="Geografia"),
+    app_commands.Choice(name="Português", value="Português"),
+    app_commands.Choice(name="Inglês", value="Inglês"),
+
+    app_commands.Choice(name="Outros", value="Outros")
     ])
+
     async def criarquestao(
         interaction: discord.Interaction,
         descricao: str,
@@ -129,22 +138,8 @@ def setup_commands(context):
             numeros = ''.join(random.choices(string.digits, k=2))
             token = f"Q-{letras}{numeros}"
             
-            # Processar e salvar imagem se fornecida
-            imagem_path = None
-            if imagem:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                imagem_filename = f"{interaction.user.id}_{timestamp}_{imagem.filename}"
-                imagem_path = f"uploads/{imagem_filename}"
-                await imagem.save(imagem_path)
-            
-            # Salvar dados localmente
-            arquivo_questao = salvar_questao_local(
-                interaction.user.id,
-                str(interaction.user),
-                descricao,
-                materia,
-                imagem_path
-            )
+            # ✅ Não salvamos mais localmente, apenas usamos a URL da imagem
+            imagem_url = imagem.url if imagem else None
             
             # Obter o canal correto baseado na matéria
             canal_id = MATERIAS_CANAIS.get(materia)
@@ -199,12 +194,12 @@ def setup_commands(context):
             # Resposta de sucesso
             resposta = f"✅ **Questão criada com sucesso!**\n\n"
             resposta += f"🏷️ **Token:** `{token}`\n"
-            resposta += f"📁 **Dados salvos em:** `{arquivo_questao}`\n"
+            # resposta += f"📁 **Dados salvos em:** `{arquivo_questao}`\n"
             resposta += f"📝 **Matéria:** {materia}\n"
             resposta += f"💬 **Tópico criado:** {thread.mention}\n"
             
-            if imagem:
-                resposta += f"🖼️ **Imagem salva:** `{imagem_path}`\n"
+            #if imagem:
+            #    resposta += f"🖼️ **Imagem salva:** `{imagem_path}`\n"
             
             await interaction.followup.send(resposta, ephemeral=True)
             

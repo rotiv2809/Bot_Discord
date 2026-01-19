@@ -97,35 +97,35 @@ def setup_events(context):
         status = consultar_aluno_por_email(email)
 
        # 🔴 Caso 1: email não encontrado — ainda não é aluno
-        # 🔴 Caso 1: email não encontrado — ainda não é aluno
-        embed = discord.Embed(
-            title="🚀 Comece sua preparação com a Tropa do Arcanjo",
-            description=(
-                "❌ **Este email ainda não está cadastrado em nossa base.**\n\n"
-                "Antes de tudo, confirme se o email informado está **correto** e tente novamente.\n\n"
-                "Se você busca **aprovação em concursos militares**, aqui você encontra um método direto, "
-                "materiais atualizados e conteúdo focado exatamente no que cai nas provas.\n\n"
-                "👉 **[Clique aqui e conheça nossos cursos](https://www.tropadoarcanjo.com.br/cursos/?utm_source=www.google.com&sck=03c062e1-ad19-488a-8144-d81c63196029||)**\n\n"
-                "📌 **Já é aluno?** Caso tenha digitado o email corretamente e ainda assim não conseguiu a verificação, "
-                "clique em <#1431767520280317992> para abrir um **ticket de atendimento**.\n"
-                "Nossa equipe irá te ajudar **o mais rápido possível** ✅"
-            ),
-            color=discord.Color.blue()
-        )
+        if status == None:
+            embed = discord.Embed(
+                title="🚀 Comece sua preparação com a Tropa do Arcanjo",
+                description=(
+                    "❌ **Este email ainda não está cadastrado em nossa base.**\n\n"
+                    "Antes de tudo, confirme se o email informado está **correto** e tente novamente.\n\n"
+                    "Se você busca **aprovação em concursos militares**, aqui você encontra um método direto, "
+                    "materiais atualizados e conteúdo focado exatamente no que cai nas provas.\n\n"
+                    "👉 **[Clique aqui e conheça nossos cursos](https://www.tropadoarcanjo.com.br/cursos/?utm_source=www.google.com&sck=03c062e1-ad19-488a-8144-d81c63196029||)**\n\n"
+                    "📌 **Já é aluno?** Caso tenha digitado o email corretamente e ainda assim não conseguiu a verificação, "
+                    "clique em <#1431767520280317992> para abrir um **ticket de atendimento**.\n"
+                    "Nossa equipe irá te ajudar **o mais rápido possível** ✅"
+                ),
+                color=discord.Color.blue()
+            )
 
-        file = discord.File(
-            fp="images/imagembanner.png",
-            filename="imagembanner.png"
-        )
+            file = discord.File(
+                fp="images/imagembanner.png",
+                filename="imagembanner.png"
+            )
 
-        embed.set_image(url="attachment://imagembanner.png")
-        embed.set_footer(text="Tropa do Arcanjo")
+            embed.set_image(url="attachment://imagembanner.png")
+            embed.set_footer(text="Tropa do Arcanjo")
 
-        await message.channel.send(
-            "📢 **Não localizamos este email em nossa base no momento.**",
-            embed=embed,
-            file=file
-        )
+            await message.channel.send(
+                "📢 **Não localizamos este email em nossa base no momento.**",
+                embed=embed,
+                file=file
+            )
 
 
 
