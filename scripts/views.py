@@ -29,16 +29,47 @@ CANAL_RESOLVIDAS_ID = 1450565720500080741
 
 
 class GerenciarQuestaoSelect(ui.Select):
-    def __init__(self, token):
+    def __init__(self, token, criador_id=None):  # ✅ Adicionar criador_id
         self.token = token
+        self.criador_id = criador_id  # ✅ Guardar ID do criador
+        
         options = [
-            discord.SelectOption(label="Marcar como Resolvida", description="Move para resolvidas com histórico em TXT", emoji="✅", value="resolver"),
-            discord.SelectOption(label="Deletar Questão", description="Remove a questão permanentemente", emoji="🗑️", value="deletar")
+            discord.SelectOption(
+                label="Marcar como Resolvida",
+                description="Move para resolvidas com histórico em TXT",
+                emoji="✅",
+                value="resolver"
+            ),
+            discord.SelectOption(
+                label="Deletar Questão",
+                description="Remove a questão permanentemente",
+                emoji="🗑️",
+                value="deletar"
+            )
         ]
-        super().__init__(placeholder="Gerenciar Questão", options=options, custom_id=f"gerenciar_questao_select_{token}")
+        super().__init__(
+            placeholder="Gerenciar Questão",
+            options=options,
+            custom_id=f"gerenciar_questao_select_{token}"
+        )
     
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
+        
+        # ✅ VERIFICAR PERMISSÃO ANTES DE PROCESSAR
+        if self.values[0] == "deletar":
+            # Verificar se é o criador OU moderador
+            is_criador = self.criador_id and interaction.user.id == self.criador_id
+            is_moderador = interaction.user.guild_permissions.manage_messages
+            
+            if not (is_criador or is_moderador):
+                await interaction.followup.send(
+                    "❌ **Sem permissão!**\n\n"
+                    "Apenas o criador da questão ou moderadores podem deletá-la.",
+                    ephemeral=True
+                )
+                return
+            
         try:
             thread = None
             mensagem_original = None
@@ -403,6 +434,26 @@ class GerenciarQuestaoSelect(ui.Select):
                 shutil.rmtree(pasta_resumo)
             except:
                 pass
+            
+    async def deletar_questao(self, interaction, thread, mensagem_original):
+        """Deleta uma questão permanentemente"""
+        await interaction.followup.send(
+            "⚠️ **Deletar esta questão?**\n\n"
+            "Ação permanente! Deletando em 5 segundos...",
+            ephemeral=True
+        )
+        await asyncio.sleep(5)
+        
+        # Remove favoritos
+        remover_favoritos(self.token)
+        
+        try:
+            # Deleta mensagem e thread
+            await mensagem_original.delete()
+            await thread.delete()
+            print(f"🗑️ Questão {self.token} deletada permanentemente")
+        except Exception as e:
+            print(f"Erro ao deletar: {e}")
 
 
 class StatusQuestaoView(ui.View):
