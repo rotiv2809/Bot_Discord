@@ -190,6 +190,9 @@ def setup_commands(context):
             # Adicionar o usuário ao tópico
             await thread.add_user(interaction.user)
 
+            await mensagem.edit(
+                content=f"💬 **Discussão:** {thread.mention}"
+            )
             
             # Resposta de sucesso
             resposta = f"✅ **Questão criada com sucesso!**\n\n"
