@@ -33,18 +33,8 @@ class BotoesVerificacaoManual(ui.View):
             # Buscar canal do ticket
             ticket_channel = guild.get_channel(self.ticket_channel_id)
             
-            # Adicionar ao Supabase
-            from main import bot_context
-            supabase = bot_context['supabase']
-            
-            supabase.table('verificacoes').insert({
-                'discord_user_id': self.discord_user_id,
-                'discord_username': str(member),
-                'email': self.email,
-                'verificado': True
-            }).execute()
-            
             # Adicionar cargo
+            from main import bot_context
             role_id = bot_context['ROLE_ID_ALUNO']
             role = guild.get_role(role_id)
             
@@ -214,7 +204,6 @@ async def solicitar_verificacao_manual(bot, discord_user_id: int, discord_userna
         view = BotoesVerificacaoManual(discord_user_id, email, ticket_channel_id)
         
         # Enviar mensagem
-        # Opção 1: Thread privada (recomendado)
         mensagem = await canal.send(
             content="@here Nova verificação pendente!",  # Menciona moderadores
             embed=embed,
