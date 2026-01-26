@@ -1,7 +1,7 @@
 import discord
 from discord import ui
 from datetime import datetime
-
+from dados import CANAL_VERIFICACOES_PENDENTES
 
 class BotoesVerificacaoManual(ui.View):
     """Botões para aprovar/rejeitar verificação"""
@@ -162,8 +162,6 @@ async def solicitar_verificacao_manual(bot, discord_user_id: int, discord_userna
     Envia solicitação de verificação manual para canal de moderadores
     """
     try:
-        # ID do canal de verificações pendentes
-        CANAL_VERIFICACOES_PENDENTES = 1234567890  # ⚠️ CONFIGURE AQUI!
         
         canal = bot.get_channel(CANAL_VERIFICACOES_PENDENTES)
         if not canal:
