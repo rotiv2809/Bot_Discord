@@ -10,6 +10,9 @@ GURU_API_TOKEN = os.getenv("GURU_API_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ROLE_ID_ALUNO = int(os.getenv("ROLE_ID_ALUNO", "0"))
 
+# ✅ NOVO - Canal de verificações manuais
+CANAL_VERIFICACOES_PENDENTES = 1465358891398467735
+
 if __name__ == "__main__":
     print("=" * 50)
     print("🔍 Verificando variáveis carregadas:")

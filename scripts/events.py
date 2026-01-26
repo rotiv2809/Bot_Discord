@@ -56,6 +56,7 @@ def setup_events(context):
             except:
                 pass
             return
+        
         # Limpa mensagens no canal de envio de questões
         if message.channel.id == ID_CANAL_ENVIAR_QUESTOES:
             await message.delete()
@@ -66,8 +67,6 @@ def setup_events(context):
             except:
                 pass
             return
-
-
 
         # Verifica se é um canal de ticket
         if not message.channel.name.startswith("ticket-"):
@@ -93,42 +92,77 @@ def setup_events(context):
             )
             return
 
-        # 🔥 NOVA LÓGICA (AQUI ESTÁ A MUDANÇA)
+        # 🔥 CONSULTAR STATUS DO ALUNO
         status = consultar_aluno_por_email(email)
 
-       # 🔴 Caso 1: email não encontrado — ainda não é aluno
+        # 🔴 Caso 1: email não encontrado
         if status == None:
-            embed = discord.Embed(
-                title="🚀 Comece sua preparação com a Tropa do Arcanjo",
-                description=(
-                    "❌ **Este email ainda não está cadastrado em nossa base.**\n\n"
-                    "Antes de tudo, confirme se o email informado está **correto** e tente novamente.\n\n"
-                    "Se você busca **aprovação em concursos militares**, aqui você encontra um método direto, "
-                    "materiais atualizados e conteúdo focado exatamente no que cai nas provas.\n\n"
-                    "👉 **[Clique aqui e conheça nossos cursos](https://www.tropadoarcanjo.com.br/cursos/?utm_source=www.google.com&sck=03c062e1-ad19-488a-8144-d81c63196029||)**\n\n"
-                    "📌 **Já é aluno?** Caso tenha digitado o email corretamente e ainda assim não conseguiu a verificação, "
-                    "clique em <#1431767520280317992> para abrir um **ticket de atendimento**.\n"
-                    "Nossa equipe irá te ajudar **o mais rápido possível** ✅"
-                ),
-                color=discord.Color.blue()
-            )
-
-            file = discord.File(
-                fp="images/imagembanner.png",
-                filename="imagembanner.png"
-            )
-
-            embed.set_image(url="attachment://imagembanner.png")
-            embed.set_footer(text="Tropa do Arcanjo")
-
+            # ✅ NOVA LÓGICA - VERIFICAÇÃO MANUAL
+            print(f"⚠️ Email não encontrado na base: {email}")
+            
+            # Enviar mensagem inicial no ticket
             await message.channel.send(
-                "📢 **Não localizamos este email em nossa base no momento.**",
-                embed=embed,
-                file=file
+                f"⏳ **Verificação Manual Necessária**\n\n"
+                f"📧 Email `{email}` não foi encontrado automaticamente na base de dados.\n\n"
+                f"🔍 **Nossa equipe foi notificada!**\n"
+                f"⏱️ Por favor, aguarde alguns minutos.\n\n"
+                f"Um moderador irá validar manualmente se você está cadastrado.\n"
+                f"Você receberá uma resposta aqui no ticket em breve.\n\n"
+                f"_Tempo médio de resposta: 5-15 minutos_"
             )
+            
+            # Enviar para canal de moderadores
+            from scripts.verificacao_manual import solicitar_verificacao_manual
+            sucesso = await solicitar_verificacao_manual(
+                bot,
+                message.author.id,
+                str(message.author),
+                email,
+                message.channel.id
+            )
+            
+            if sucesso:
+                print(f"✅ Solicitação de verificação manual enviada: {email}")
+            else:
+                print(f"❌ Falha ao enviar solicitação de verificação manual: {email}")
+                
+                # Fallback: mostrar embed de "não cadastrado" se falhar
+                embed = discord.Embed(
+                    title="🚀 Comece sua preparação com a Tropa do Arcanjo",
+                    description=(
+                        "❌ **Este email ainda não está cadastrado em nossa base.**\n\n"
+                        "Antes de tudo, confirme se o email informado está **correto** e tente novamente.\n\n"
+                        "Se você busca **aprovação em concursos militares**, aqui você encontra um método direto, "
+                        "materiais atualizados e conteúdo focado exatamente no que cai nas provas.\n\n"
+                        "👉 **[Clique aqui e conheça nossos cursos](https://www.tropadoarcanjo.com.br/cursos/?utm_source=www.google.com&sck=03c062e1-ad19-488a-8144-d81c63196029||)**\n\n"
+                        "📌 **Já é aluno?** Caso tenha digitado o email corretamente e ainda assim não conseguiu a verificação, "
+                        "clique em <#1431767520280317992> para abrir um **ticket de atendimento**.\n"
+                        "Nossa equipe irá te ajudar **o mais rápido possível** ✅"
+                    ),
+                    color=discord.Color.blue()
+                )
 
-
-
+                try:
+                    file = discord.File(
+                        fp="images/imagembanner.png",
+                        filename="imagembanner.png"
+                    )
+                    embed.set_image(url="attachment://imagembanner.png")
+                    embed.set_footer(text="Tropa do Arcanjo")
+                    
+                    await message.channel.send(
+                        "📢 **Não localizamos este email em nossa base no momento.**",
+                        embed=embed,
+                        file=file
+                    )
+                except FileNotFoundError:
+                    # Se a imagem não existir, envia sem ela
+                    await message.channel.send(
+                        "📢 **Não localizamos este email em nossa base no momento.**",
+                        embed=embed
+                    )
+            
+            return  # ✅ Importante: não continua o fluxo
 
         # 🟡 Caso 2: já foi aluno, mas assinatura não está ativa
         if status == "inactive":
@@ -144,20 +178,26 @@ def setup_events(context):
                 color=discord.Color.orange()
             )
 
-            file = discord.File(
-                fp="images/imagembanner.png",
-                filename="imagembanner.png"
-            )
+            try:
+                file = discord.File(
+                    fp="images/imagembanner.png",
+                    filename="imagembanner.png"
+                )
+                embed.set_image(url="attachment://imagembanner.png")
+                embed.set_footer(text="Tropa do Arcanjo")
 
-            embed.set_image(url="attachment://imagembanner.png")
-            embed.set_footer(text="Tropa do Arcanjo")
-
-            await message.channel.send(
-                "🚨 **Identificamos este email em nossa base, mas a assinatura está inativa.**",
-                embed=embed,
-                file=file
-            )
-
+                await message.channel.send(
+                    "🚨 **Identificamos este email em nossa base, mas a assinatura está inativa.**",
+                    embed=embed,
+                    file=file
+                )
+            except FileNotFoundError:
+                await message.channel.send(
+                    "🚨 **Identificamos este email em nossa base, mas a assinatura está inativa.**",
+                    embed=embed
+                )
+            
+            return
 
         # ✅ Caso 3: assinatura ativa → segue fluxo normal
         if status == "active":

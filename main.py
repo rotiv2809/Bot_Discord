@@ -72,8 +72,8 @@ async def on_ready():
     print(f"\n{'=' * 50}")
     print(f"🤖 Bot conectado como: {bot.user}")
     print(f"🆔 ID: {bot.user.id}")
-    print(f"🌐 Servidores: {len(bot.guilds)}")
-    print(f"🔢 Instância: {INSTANCE_ID}")
+    print(f"🌍 Servidores: {len(bot.guilds)}")
+    print(f"📢 Instância: {INSTANCE_ID}")
     print(f"{'=' * 50}\n")
 
     # Setup de comandos e eventos
@@ -81,19 +81,16 @@ async def on_ready():
     setup_events(bot_context)
 
     # ===== REGISTRAR VIEWS PERSISTENTES =====
-    # As views precisam ser registradas para funcionar após restart
-    # Como não sabemos quais tokens existem, registramos views "dummy"
-    # que o Discord.py vai usar como template
-
     print("⭐ Registrando sistema de favoritos...")
-
-    # View para questões abertas (com select + botão favoritar)
     bot.add_view(StatusQuestaoView(token="PLACEHOLDER"))
-
-    # View para questões resolvidas (só botão favoritar)
     bot.add_view(FavoritoButtonResolvidas(token="PLACEHOLDER"))
-
     print("✅ Sistema de favoritos carregado!")
+
+    # ✅ NOVO - Registrar view de verificação manual
+    print("🔐 Registrando sistema de verificação manual...")
+    from scripts.verificacao_manual import BotoesVerificacaoManual
+    bot.add_view(BotoesVerificacaoManual(0, "", 0))
+    print("✅ Sistema de verificação manual carregado!")
 
     try:
         synced = await bot.tree.sync()
@@ -102,9 +99,6 @@ async def on_ready():
             print(f"   - /{cmd.name}")
     except Exception as e:
         print(f"❌ Erro ao sincronizar comandos: {e}")
-
-if __name__ == "__main__":
-    print("🚀 Iniciando serviços...\n")
 
     try:
         bot.run(DISCORD_TOKEN)
