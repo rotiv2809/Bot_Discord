@@ -8,7 +8,6 @@ from scripts.views import StatusQuestaoView, FavoritoButtonResolvidas
 from scripts.drive_uploader import set_drive_service
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
-from scripts.drive_uploader import set_drive_service
 from scripts.events import setup_events
 from scripts.commands import setup_commands
 
@@ -63,7 +62,6 @@ credentials = Credentials.from_service_account_file(
 )
 
 service = build("drive", "v3", credentials=credentials)
-
 set_drive_service(service)
 
 
@@ -81,19 +79,14 @@ async def on_ready():
     setup_events(bot_context)
 
     # ===== REGISTRAR VIEWS PERSISTENTES =====
-    # As views precisam ser registradas para funcionar após restart
-    # Como não sabemos quais tokens existem, registramos views "dummy"
-    # que o Discord.py vai usar como template
-
-    print("⭐ Registrando sistema de favoritos...")
-
-    # View para questões abertas (com select + botão favoritar)
+    print("⭐ Registrando views persistentes...")
+    
+    # Registra as views com token placeholder
+    # O Discord.py vai usar isso como template para views antigas
     bot.add_view(StatusQuestaoView(token="PLACEHOLDER"))
-
-    # View para questões resolvidas (só botão favoritar)
     bot.add_view(FavoritoButtonResolvidas(token="PLACEHOLDER"))
-
-    print("✅ Sistema de favoritos carregado!")
+    
+    print("✅ Views persistentes registradas!")
 
     try:
         synced = await bot.tree.sync()

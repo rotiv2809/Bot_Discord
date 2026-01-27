@@ -27,11 +27,44 @@ MATERIAS_CANAIS = {
 CANAL_FAVORITOS_ID = 1451670988243861676
 CANAL_RESOLVIDAS_ID = 1450565720500080741
 
+def extrair_token_de_mensagem(mensagem):
+    """Extrai o token de um embed ou nome de thread"""
+    try:
+        # Tenta extrair do embed
+        if mensagem.embeds:
+            embed = mensagem.embeds[0]
+            
+            # Tenta footer
+            if embed.footer and embed.footer.text:
+                import re
+                match = re.search(r'Token:\s*([A-Z0-9-]+)', embed.footer.text)
+                if match:
+                    return match.group(1)
+            
+            # Tenta descrição
+            if embed.description:
+                import re
+                match = re.search(r'Token:\s*`([^`]+)`', embed.description)
+                if match:
+                    return match.group(1)
+        
+        # Tenta extrair do nome do thread
+        if hasattr(mensagem, 'thread') and mensagem.thread:
+            import re
+            match = re.search(r'(Q-[A-Z0-9]{4})', mensagem.thread.name)
+            if match:
+                return match.group(1)
+    
+    except Exception as e:
+        print(f"Erro ao extrair token: {e}")
+    
+    return None
+
 
 class GerenciarQuestaoSelect(ui.Select):
-    def __init__(self, token, criador_id=None):  # ✅ Adicionar criador_id
+    def __init__(self, token, criador_id=None):
         self.token = token
-        self.criador_id = criador_id  # ✅ Guardar ID do criador
+        self.criador_id = criador_id
         
         options = [
             discord.SelectOption(
@@ -47,18 +80,31 @@ class GerenciarQuestaoSelect(ui.Select):
                 value="deletar"
             )
         ]
+        
+        # ✅ CUSTOM_ID FIXO (sem token)
         super().__init__(
             placeholder="Gerenciar Questão",
             options=options,
-            custom_id=f"gerenciar_questao_select_{token}"
+            custom_id="gerenciar_questao_select"  # <<< SEM TOKEN!
         )
     
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         
-        # ✅ VERIFICAR PERMISSÃO ANTES DE PROCESSAR
+        # ✅ SE NÃO TIVER TOKEN (após restart), EXTRAI DA MENSAGEM
+        if not self.token or self.token == "PLACEHOLDER":
+            self.token = extrair_token_de_mensagem(interaction.message)
+            if not self.token:
+                await interaction.followup.send(
+                    "❌ Não foi possível identificar o token da questão!\n"
+                    "Isso pode acontecer após reiniciar o bot.",
+                    ephemeral=True
+                )
+                return
+            print(f"✅ Token extraído após restart: {self.token}")
+        
+        # ✅ VERIFICAR PERMISSÃO PARA DELETAR
         if self.values[0] == "deletar":
-            # Verificar se é o criador OU moderador
             is_criador = self.criador_id and interaction.user.id == self.criador_id
             is_moderador = interaction.user.guild_permissions.manage_messages
             
@@ -69,75 +115,60 @@ class GerenciarQuestaoSelect(ui.Select):
                     ephemeral=True
                 )
                 return
-            
+        
         try:
             thread = None
             mensagem_original = None
             
-            # ✅ NOVA LÓGICA: Detectar thread corretamente
-            # Caso 1: Interação aconteceu DENTRO da thread
+            # Detectar thread
             if isinstance(interaction.channel, discord.Thread):
                 thread = interaction.channel
                 print(f"🔍 Thread detectada: {thread.name} (ID: {thread.id})")
                 
-                # Buscar mensagem original que criou a thread
                 async for msg in thread.parent.history(limit=100):
                     if hasattr(msg, 'thread') and msg.thread and msg.thread.id == thread.id:
                         mensagem_original = msg
                         print(f"✅ Mensagem original encontrada: {msg.id}")
                         break
             
-            # Caso 2: Interação aconteceu na mensagem que TEM thread
             elif hasattr(interaction.message, 'thread') and interaction.message.thread:
                 thread = interaction.message.thread
                 mensagem_original = interaction.message
                 print(f"🔍 Thread da mensagem: {thread.name} (ID: {thread.id})")
             
-            # Caso 3: Tentar pegar do canal pai
             else:
-                # Tenta buscar thread pelo token
                 canal_pai = interaction.channel
                 if hasattr(canal_pai, 'parent'):
                     canal_pai = canal_pai.parent
                 
                 print(f"🔍 Buscando thread no canal: {canal_pai.name if canal_pai else 'None'}")
                 
-                # Busca threads ativas
                 if canal_pai:
                     for t in canal_pai.threads:
                         if self.token in t.name:
                             thread = t
                             print(f"✅ Thread encontrada por token: {thread.name}")
                             
-                            # Buscar mensagem original
                             async for msg in canal_pai.history(limit=100):
                                 if hasattr(msg, 'thread') and msg.thread and msg.thread.id == thread.id:
                                     mensagem_original = msg
                                     break
                             break
             
-            # ❌ Se ainda não encontrou
             if not thread:
-                print(f"❌ Thread não encontrada! Canal: {interaction.channel}")
-                print(f"❌ Tipo do canal: {type(interaction.channel)}")
-                print(f"❌ Token: {self.token}")
+                print(f"❌ Thread não encontrada! Token: {self.token}")
                 await interaction.followup.send(
                     f"❌ **Thread não encontrada!**\n\n"
-                    f"🔍 Debug Info:\n"
-                    f"- Token: `{self.token}`\n"
-                    f"- Canal: {interaction.channel.mention if hasattr(interaction.channel, 'mention') else 'N/A'}\n"
-                    f"- Tipo: `{type(interaction.channel).__name__}`\n\n"
+                    f"Token: `{self.token}`\n"
                     f"Tente usar o botão dentro da thread da questão.",
                     ephemeral=True
                 )
                 return
             
-            # Se não encontrou mensagem original, usa a mensagem da interação
             if not mensagem_original:
                 mensagem_original = interaction.message
                 print(f"⚠️ Usando mensagem da interação como fallback")
             
-            # ✅ Continua com o código normal
             if self.values[0] == "resolver":
                 await self.marcar_resolvida(interaction, thread, mensagem_original)
             elif self.values[0] == "deletar":
@@ -455,18 +486,25 @@ class GerenciarQuestaoSelect(ui.Select):
         except Exception as e:
             print(f"Erro ao deletar: {e}")
 
-
 class StatusQuestaoView(ui.View):
     def __init__(self, token):
         super().__init__(timeout=None)
         self.token = token
         self.add_item(GerenciarQuestaoSelect(token))
     
-    @ui.button(label="⭐ Favoritar", style=discord.ButtonStyle.primary, custom_id="favoritar_questao_aberta", row=1)
+    @ui.button(label="⭐ Favoritar", style=discord.ButtonStyle.primary, custom_id="favoritar_questao", row=1)  # <<< SEM _aberta
     async def favoritar(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer(ephemeral=True)
+        
         try:
+            # ✅ EXTRAIR TOKEN SE NECESSÁRIO
             token = self.token
+            if not token or token == "PLACEHOLDER":
+                token = extrair_token_de_mensagem(interaction.message)
+                if not token:
+                    await interaction.followup.send("❌ Token não encontrado!", ephemeral=True)
+                    return
+                self.token = token
             adicionar_favorito(token, interaction.user.id)
             mensagem_original = None
             thread = None
@@ -556,7 +594,6 @@ class StatusQuestaoView(ui.View):
             import traceback
             traceback.print_exc()
 
-
 class FavoritoButtonResolvidas(ui.View):
     def __init__(self, token):
         super().__init__(timeout=None)
@@ -565,8 +602,16 @@ class FavoritoButtonResolvidas(ui.View):
     @ui.button(label="⭐ Favoritar", style=discord.ButtonStyle.primary, custom_id="favoritar_resolvida", row=0)
     async def favoritar(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer(ephemeral=True)
+        
         try:
+            # ✅ EXTRAIR TOKEN SE NECESSÁRIO
             token = self.token
+            if not token or token == "PLACEHOLDER":
+                token = extrair_token_de_mensagem(interaction.message)
+                if not token:
+                    await interaction.followup.send("❌ Token não encontrado!", ephemeral=True)
+                    return
+                self.token = token
             materia = None
             if interaction.message.embeds:
                 titulo = interaction.message.embeds[0].title
