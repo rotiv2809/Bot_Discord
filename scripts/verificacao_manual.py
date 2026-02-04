@@ -147,8 +147,7 @@ class BotoesVerificacaoManual(ui.View):
                         name="💡 O que fazer?",
                         value=(
                             "• Verifique se digitou o email corretamente\n"
-                            "• Confirme se está matriculado\n"
-                            "• Entre em contato com a secretaria\n"
+                            "• Entre em contato com o suporte abrindo um ticket em https://discord.com/channels/1431694508663505066/1431767520280317992\n"
                             "• Tente novamente com `/verificar`"
                         ),
                         inline=False

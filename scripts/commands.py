@@ -57,7 +57,7 @@ def setup_commands(context):
                 description=(
                     "Bem-vindo ao processo de verificação!\n\n"
                     "Para ter acesso completo ao servidor, você precisa verificar "
-                    "que é um aluno matriculado."
+                    "que faz parte da tropa."
                 ),
                 color=discord.Color.blue()
             )
@@ -65,7 +65,7 @@ def setup_commands(context):
             embed.add_field(
                 name="📧 Como funciona?",
                 value=(
-                    "1️⃣ Digite seu **email institucional** aqui na DM\n"
+                    "1️⃣ Digite seu **email** aqui na DM\n"
                     "2️⃣ Verificaremos se você está na base de alunos\n"
                     "3️⃣ Se aprovado, você receberá o cargo automaticamente"
                 ),
@@ -75,9 +75,9 @@ def setup_commands(context):
             embed.add_field(
                 name="⚠️ Importante",
                 value=(
-                    "• Use o email institucional cadastrado\n"
+                    "• Use o email cadastrado\n"
                     "• Responda apenas com o email\n"
-                    "• Exemplo: `seu.nome@escola.edu.br`"
+                    "• Exemplo: `tropaehbraba@gmail.com`"
                 ),
                 inline=False
             )
