@@ -32,7 +32,7 @@ def setup_commands(context):
     CATEGORIA_VERIFICACAO_ID = context['CATEGORIA_VERIFICACAO_ID']
     ROLE_ID_ALUNO = context['ROLE_ID_ALUNO']
     
-    @bot.tree.command(name="verificar", description="Abrir ticket de verificação")
+    @bot.tree.command(name="verificar", description="Iniciar processo de verificação")
     async def verificar(interaction: discord.Interaction):
         guild = interaction.guild
         user = interaction.user
@@ -43,42 +43,63 @@ def setup_commands(context):
             await interaction.response.send_message("❌ Você já está verificado como aluno!", ephemeral=True)
             return
         
-        # Verifica se já tem um ticket aberto
-        ticket_existente = discord.utils.get(guild.channels, name=f"ticket-{user.name.lower()}")
-        if ticket_existente:
-            await interaction.response.send_message(f"❌ Você já tem um ticket aberto: {ticket_existente.mention}", ephemeral=True)
-            return
-        
-        # Busca a categoria
-        categoria = guild.get_channel(CATEGORIA_VERIFICACAO_ID)
-        if not categoria:
-            await interaction.response.send_message("❌ Categoria de tickets não configurada!", ephemeral=True)
-            return
-        
-        # Cria o canal do ticket
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        }
-        
-        canal_ticket = await categoria.create_text_channel(
-            name=f"ticket-{user.name}",
-            overwrites=overwrites
+        # Responde no servidor
+        await interaction.response.send_message(
+            "✅ Processo de verificação iniciado!\n\n"
+            "📬 **Verifique sua DM** - enviei as instruções por lá.",
+            ephemeral=True
         )
         
-        # Marca este ticket como ativo para verificação
-        tickets_verificacao_ativa.add(canal_ticket.id)
-        
-        await interaction.response.send_message(f"✅ Ticket criado: {canal_ticket.mention}", ephemeral=True)
-        
-        await canal_ticket.send(
-            f"🎫 **Ticket de Verificação - {user.mention}**\n\n"
-            f"Digite seu email para verificação:\n"
-            f"`seu@email.com`\n\n"
-            f"Use `/fechar` para fechar este ticket."
-        )
-    
+        # Envia DM para o usuário
+        try:
+            embed = discord.Embed(
+                title="🎓 Verificação de Aluno",
+                description=(
+                    "Bem-vindo ao processo de verificação!\n\n"
+                    "Para ter acesso completo ao servidor, você precisa verificar "
+                    "que é um aluno matriculado."
+                ),
+                color=discord.Color.blue()
+            )
+            
+            embed.add_field(
+                name="📧 Como funciona?",
+                value=(
+                    "1️⃣ Digite seu **email institucional** aqui na DM\n"
+                    "2️⃣ Verificaremos se você está na base de alunos\n"
+                    "3️⃣ Se aprovado, você receberá o cargo automaticamente"
+                ),
+                inline=False
+            )
+            
+            embed.add_field(
+                name="⚠️ Importante",
+                value=(
+                    "• Use o email institucional cadastrado\n"
+                    "• Responda apenas com o email\n"
+                    "• Exemplo: `seu.nome@escola.edu.br`"
+                ),
+                inline=False
+            )
+            
+            embed.set_footer(text=f"Servidor: {guild.name}")
+            
+            await user.send(embed=embed)
+            
+            # Marca que o usuário está em processo de verificação
+            tickets_verificacao_ativa.add(user.id)
+            print(f"✅ Verificação iniciada via DM: {user.name} ({user.id})")
+            
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "❌ **Não consegui enviar DM!**\n\n"
+                "Por favor, habilite mensagens diretas de membros do servidor:\n"
+                "1. Clique com botão direito no servidor\n"
+                "2. **Privacidade** → Ativar **Mensagens diretas**\n"
+                "3. Tente o comando `/verificar` novamente",
+                ephemeral=True
+            )
+            return
     @bot.tree.command(name="fechar", description="Fechar seu ticket de verificação")
     async def fechar(interaction: discord.Interaction):
         # Verifica se está em um canal de ticket

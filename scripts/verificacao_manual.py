@@ -6,11 +6,11 @@ from dados import CANAL_VERIFICACOES_PENDENTES
 class BotoesVerificacaoManual(ui.View):
     """Botões para aprovar/rejeitar verificação"""
     
-    def __init__(self, discord_user_id: int, email: str, ticket_channel_id: int):
-        super().__init__(timeout=None)  # Sem timeout
+    def __init__(self, discord_user_id: int, email: str, dm_channel_id: int = None):
+        super().__init__(timeout=None)
         self.discord_user_id = discord_user_id
         self.email = email
-        self.ticket_channel_id = ticket_channel_id
+        self.dm_channel_id = dm_channel_id
     
     @ui.button(label="✅ Aprovar", style=discord.ButtonStyle.success, custom_id="aprovar_verificacao")
     async def aprovar(self, interaction: discord.Interaction, button: ui.Button):
@@ -29,9 +29,6 @@ class BotoesVerificacaoManual(ui.View):
             if not member:
                 await interaction.followup.send("❌ Usuário não encontrado no servidor!", ephemeral=True)
                 return
-            
-            # Buscar canal do ticket
-            ticket_channel = guild.get_channel(self.ticket_channel_id)
             
             # Adicionar cargo
             from main import bot_context
@@ -57,15 +54,31 @@ class BotoesVerificacaoManual(ui.View):
             )
             await interaction.message.edit(embed=embed, view=self)
             
-            # Notificar no ticket
-            if ticket_channel:
-                await ticket_channel.send(
-                    f"✅ **VERIFICAÇÃO APROVADA!**\n\n"
-                    f"👤 {member.mention}\n"
-                    f"📧 Email: `{self.email}`\n"
-                    f"🎓 Cargo de aluno adicionado!\n\n"
-                    f"Aprovado por: {interaction.user.mention}"
+            # Notificar usuário via DM
+            try:
+                embed_aprovado = discord.Embed(
+                    title="✅ Verificação Aprovada!",
+                    description=f"Sua verificação foi aprovada manualmente!",
+                    color=discord.Color.green()
                 )
+                
+                embed_aprovado.add_field(
+                    name="📧 Email",
+                    value=f"`{self.email}`",
+                    inline=False
+                )
+                
+                embed_aprovado.add_field(
+                    name="🎓 Status",
+                    value="Você agora tem acesso completo ao servidor!",
+                    inline=False
+                )
+                
+                embed_aprovado.set_footer(text=f"Aprovado por {interaction.user.name}")
+                
+                await member.send(embed=embed_aprovado)
+            except:
+                pass  # Se não conseguir enviar DM, ignora
             
             await interaction.followup.send(
                 f"✅ Verificação aprovada com sucesso!\n"
@@ -95,9 +108,8 @@ class BotoesVerificacaoManual(ui.View):
                 item.disabled = True
             await interaction.message.edit(view=self)
             
-            # Buscar canal do ticket
+            # Buscar membro
             guild = interaction.guild
-            ticket_channel = guild.get_channel(self.ticket_channel_id)
             member = guild.get_member(self.discord_user_id)
             
             # Atualizar embed
@@ -116,21 +128,39 @@ class BotoesVerificacaoManual(ui.View):
             )
             await interaction.message.edit(embed=embed, view=self)
             
-            # Notificar no ticket
-            if ticket_channel:
-                await ticket_channel.send(
-                    f"❌ **VERIFICAÇÃO REJEITADA**\n\n"
-                    f"📧 Email `{self.email}` não foi encontrado na base de alunos.\n\n"
-                    f"Por favor, verifique:\n"
-                    f"• Email está correto?\n"
-                    f"• Você está matriculado?\n"
-                    f"• Entre em contato com a secretaria.\n\n"
-                    f"Rejeitado por: {interaction.user.mention}"
-                )
+            # Notificar usuário via DM
+            if member:
+                try:
+                    embed_rejeitado = discord.Embed(
+                        title="❌ Verificação Rejeitada",
+                        description=f"Sua verificação não foi aprovada.",
+                        color=discord.Color.red()
+                    )
+                    
+                    embed_rejeitado.add_field(
+                        name="📧 Email",
+                        value=f"`{self.email}`",
+                        inline=False
+                    )
+                    
+                    embed_rejeitado.add_field(
+                        name="💡 O que fazer?",
+                        value=(
+                            "• Verifique se digitou o email corretamente\n"
+                            "• Confirme se está matriculado\n"
+                            "• Entre em contato com a secretaria\n"
+                            "• Tente novamente com `/verificar`"
+                        ),
+                        inline=False
+                    )
+                    
+                    await member.send(embed=embed_rejeitado)
+                except:
+                    pass
             
             await interaction.followup.send(
                 f"❌ Verificação rejeitada.\n"
-                f"Usuário foi notificado no ticket.",
+                f"Usuário foi notificado via DM.",
                 ephemeral=True
             )
             
@@ -147,12 +177,11 @@ class BotoesVerificacaoManual(ui.View):
             traceback.print_exc()
 
 
-async def solicitar_verificacao_manual(bot, discord_user_id: int, discord_username: str, email: str, ticket_channel_id: int):
+async def solicitar_verificacao_manual(bot, discord_user_id: int, discord_username: str, email: str, dm_channel_id: int = None):
     """
     Envia solicitação de verificação manual para canal de moderadores
     """
     try:
-        
         canal = bot.get_channel(CANAL_VERIFICACOES_PENDENTES)
         if not canal:
             print(f"❌ Canal de verificações pendentes não encontrado!")
@@ -183,8 +212,8 @@ async def solicitar_verificacao_manual(bot, discord_user_id: int, discord_userna
         )
         
         embed.add_field(
-            name="🎫 Ticket",
-            value=f"<#{ticket_channel_id}>",
+            name="💬 Verificação",
+            value="Via **DM** (Mensagem Direta)",
             inline=False
         )
         
@@ -201,11 +230,11 @@ async def solicitar_verificacao_manual(bot, discord_user_id: int, discord_userna
         embed.set_footer(text=f"ID: {discord_user_id}")
         
         # Criar view com botões
-        view = BotoesVerificacaoManual(discord_user_id, email, ticket_channel_id)
+        view = BotoesVerificacaoManual(discord_user_id, email, dm_channel_id)
         
         # Enviar mensagem
         mensagem = await canal.send(
-            content="@here Nova verificação pendente!",  # Menciona moderadores
+            content="@here Nova verificação pendente!",
             embed=embed,
             view=view
         )
