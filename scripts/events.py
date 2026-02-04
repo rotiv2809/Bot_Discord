@@ -300,7 +300,6 @@ def setup_events(context):
         supabase = context['supabase']
         ROLE_ID_ALUNO = context['ROLE_ID_ALUNO']
 
-        #@tasks.loop(time=time(hour=0, minute=0))  # meia-noite
         @tasks.loop(hours=6)
         async def verificacao_diaria():
             print("🌙 Iniciando verificação diária de assinaturas...")
@@ -311,45 +310,62 @@ def setup_events(context):
 
                 print(f"📦 {len(verificacoes)} verificações encontradas")
 
-                for v in verificacoes:
-                    discord_id = int(v["discord_id"])
-                    email = v["email"]
-                    guild_id = int(v["guild_id"])
+                # ✅ Processar em lotes de 10 para não travar o bot
+                TAMANHO_LOTE = 10
+                
+                for i in range(0, len(verificacoes), TAMANHO_LOTE):
+                    lote = verificacoes[i:i + TAMANHO_LOTE]
+                    
+                    if len(verificacoes) > TAMANHO_LOTE:
+                        print(f"🔄 Processando lote {i//TAMANHO_LOTE + 1}/{(len(verificacoes) + TAMANHO_LOTE - 1)//TAMANHO_LOTE}")
+                    
+                    for v in lote:
+                        discord_id = int(v["discord_id"])
+                        email = v["email"]
+                        guild_id = int(v["guild_id"])
 
-                    guild = bot.get_guild(guild_id)
-                    if not guild:
-                        print(f"❌ Guild {guild_id} não encontrada")
-                        continue
+                        guild = bot.get_guild(guild_id)
+                        if not guild:
+                            print(f"❌ Guild {guild_id} não encontrada")
+                            continue
 
-                    member = guild.get_member(discord_id)
+                        member = guild.get_member(discord_id)
 
-                    # 1️⃣ Usuário saiu do servidor → apaga do banco
-                    if not member:
-                        print(f"🧹 Usuário {discord_id} não está mais no servidor, removendo registro")
-                        supabase.table("verificacoes") \
-                            .delete() \
-                            .eq("discord_id", str(discord_id)) \
-                            .execute()
-                        continue
+                        # 1️⃣ Usuário saiu do servidor → apaga do banco
+                        if not member:
+                            print(f"🧹 Usuário {discord_id} não está mais no servidor, removendo registro")
+                            supabase.table("verificacoes") \
+                                .delete() \
+                                .eq("discord_id", str(discord_id)) \
+                                .execute()
+                            continue
 
-                    # 2️⃣ Verifica se a assinatura ainda está ativa
-                    status = consultar_aluno_por_email(email)
+                        # 2️⃣ Verifica se a assinatura ainda está ativa
+                        # ✅ CORREÇÃO: Rodar de forma não-bloqueante
+                        status = await asyncio.to_thread(consultar_aluno_por_email, email)
 
-                    if status != "active":
-                        role = guild.get_role(ROLE_ID_ALUNO)
-                        if role and role in member.roles:
-                            await member.remove_roles(role)
-                            print(f"🚫 Cargo removido de {member} ({email})")
+                        if status != "active":
+                            role = guild.get_role(ROLE_ID_ALUNO)
+                            if role and role in member.roles:
+                                await member.remove_roles(role)
+                                print(f"🚫 Cargo removido de {member} ({email})")
 
-                        # 🔥 OPCIONAL:
-                        # se quiser apagar o vínculo quando cancelar:
-                        supabase.table("verificacoes") \
-                             .delete() \
-                             .eq("discord_id", str(discord_id)) \
-                             .execute()
+                            # Apagar o vínculo quando cancelar
+                            supabase.table("verificacoes") \
+                                 .delete() \
+                                 .eq("discord_id", str(discord_id)) \
+                                 .execute()
+                    
+                    # ✅ Pausa entre lotes
+                    if i + TAMANHO_LOTE < len(verificacoes):
+                        await asyncio.sleep(2)
+                
+                print(f"✅ Verificação diária concluída!")
 
             except Exception as e:
                 print(f"❌ Erro na verificação diária: {e}")
+                import traceback
+                traceback.print_exc()
 
         @verificacao_diaria.before_loop
         async def before():
