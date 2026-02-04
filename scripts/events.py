@@ -2,7 +2,7 @@ import discord
 import asyncio
 from database_consult import consultar_aluno_por_email
 from discord.ext import tasks
-from datetime import time
+from datetime import time, datetime, timedelta
 
 
 def setup_events(context):
@@ -13,6 +13,7 @@ def setup_events(context):
     tickets_verificacao_ativa = context['tickets_verificacao_ativa']
     ID_DO_CANAL_VERIFICACOES = context['ID_DO_CANAL_VERIFICACOES']
     ROLE_ID_ALUNO = context['ROLE_ID_ALUNO']
+    CATEGORIA_VERIFICACAO_ID = context['CATEGORIA_VERIFICACAO_ID']
     
     def email_ja_registrado(email: str) -> bool:
         try:
@@ -238,6 +239,61 @@ def setup_events(context):
                 await message.channel.send(f"❌ Erro ao aplicar verificação: {e}")
                 print(f"❌ Erro na verificação: {e}")
 
+    
+    # ✅ LIMPEZA AUTOMÁTICA DE TICKETS ANTIGOS
+    def iniciar_limpeza_tickets():
+        bot = context['bot']
+        CATEGORIA_VERIFICACAO_ID = context['CATEGORIA_VERIFICACAO_ID']
+        
+        @tasks.loop(hours=24)  # Roda 1x por dia
+        async def limpar_tickets_antigos():
+            """Limpa tickets com mais de 7 dias automaticamente"""
+            try:
+                print("🧹 Iniciando limpeza automática de tickets antigos...")
+                
+                for guild in bot.guilds:
+                    categoria = guild.get_channel(CATEGORIA_VERIFICACAO_ID)
+                    
+                    if not categoria:
+                        continue
+                    
+                    agora = datetime.now()
+                    deletados = 0
+                    
+                    for canal in categoria.channels:
+                        if not canal.name.startswith("ticket-"):
+                            continue
+                        
+                        # Verificar idade do canal
+                        idade = agora - canal.created_at.replace(tzinfo=None)
+                        
+                        if idade > timedelta(days=7):  # Mais de 7 dias
+                            try:
+                                await canal.delete()
+                                deletados += 1
+                                await asyncio.sleep(0.5)  # Evitar rate limit
+                                print(f"  🗑️ Ticket deletado: {canal.name} ({idade.days} dias)")
+                            except Exception as e:
+                                print(f"  ❌ Erro ao deletar {canal.name}: {e}")
+                    
+                    if deletados > 0:
+                        print(f"✅ Limpeza automática: {deletados} tickets deletados no servidor {guild.name}")
+                    else:
+                        print(f"✅ Limpeza automática: Nenhum ticket antigo encontrado em {guild.name}")
+                        
+            except Exception as e:
+                print(f"❌ Erro na limpeza automática: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        @limpar_tickets_antigos.before_loop
+        async def before_limpar_tickets():
+            await bot.wait_until_ready()
+            print("⏳ Aguardando bot ficar pronto para iniciar limpeza de tickets")
+        
+        limpar_tickets_antigos.start()
+        print("🧹 Sistema de limpeza automática de tickets iniciado")
+
             
     def iniciar_verificacao_diaria():
         bot = context['bot']
@@ -301,4 +357,7 @@ def setup_events(context):
             print("⏳ Aguardando bot ficar pronto para iniciar verificação diária")
 
         verificacao_diaria.start()
+    
+    # Iniciar sistemas
+    iniciar_limpeza_tickets()
     iniciar_verificacao_diaria()
