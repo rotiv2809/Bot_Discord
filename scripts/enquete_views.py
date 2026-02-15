@@ -4,7 +4,7 @@ from datetime import datetime
 from scripts.xp_system import adicionar_xp, XP_POR_RESPOSTA, XP_RESPOSTA_CORRETA_MULTIPLIER
 
 class EnqueteButton(ui.Button):
-    def __init__(self, alternativa: str, emoji: str, resposta_correta: str, enquete_id: str):
+    def __init__(self, alternativa: str, emoji: str, resposta_correta: str, enquete_id: str, valer_xp: bool):
         super().__init__(
             style=discord.ButtonStyle.primary,
             label=alternativa,
@@ -14,6 +14,7 @@ class EnqueteButton(ui.Button):
         self.alternativa = alternativa
         self.resposta_correta = resposta_correta
         self.enquete_id = enquete_id
+        self.valer_xp = valer_xp
     
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -40,9 +41,9 @@ class EnqueteButton(ui.Button):
                 return
             
             # Calcular XP ganho
-            acertou = self.alternativa == self.resposta_correta
+            acertou = self.alternativa == self.resposta_correta if self.valer_xp else None
             xp_base = XP_POR_RESPOSTA
-            xp_ganho = xp_base * XP_RESPOSTA_CORRETA_MULTIPLIER if acertou else xp_base
+            xp_ganho = (xp_base * XP_RESPOSTA_CORRETA_MULTIPLIER if acertou else xp_base) if self.valer_xp else 0
             
             # Registrar resposta
             supabase.table('enquete_respostas').insert({
@@ -52,18 +53,25 @@ class EnqueteButton(ui.Button):
                 'xp_ganho': xp_ganho
             }).execute()
             
-            # Adicionar XP
-            novo_xp, novo_nivel, subiu_nivel, nivel_anterior = await adicionar_xp(
-                supabase,
-                user_id,
-                str(interaction.user),
-                interaction.guild.id,
-                xp_ganho,
-                interaction.guild
-            )
+            if self.valer_xp:
+                # Adicionar XP
+                novo_xp, novo_nivel, subiu_nivel, nivel_anterior = await adicionar_xp(
+                    supabase,
+                    user_id,
+                    str(interaction.user),
+                    interaction.guild.id,
+                    xp_ganho,
+                    interaction.guild
+                )
             
             # Mensagem de resposta
-            if acertou:
+            if not self.valer_xp:
+                embed = discord.Embed(
+                    title="🗳️ Voto Registrado!",
+                    description=f"Você escolheu a alternativa **{self.alternativa}**.",
+                    color=discord.Color.blurple()
+                )
+            elif acertou:
                 embed = discord.Embed(
                     title="✅ Resposta Correta!",
                     description=f"Você escolheu a alternativa **{self.alternativa}** e acertou!",
@@ -76,31 +84,32 @@ class EnqueteButton(ui.Button):
                     color=discord.Color.red()
                 )
             
-            embed.add_field(
-                name="🎁 XP Ganho",
-                value=f"+{xp_ganho} XP",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="📊 XP Total",
-                value=f"{novo_xp} XP",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="⭐ Nível",
-                value=f"Nível {novo_nivel}",
-                inline=True
-            )
-            
-            # Se subiu de nível
-            if subiu_nivel and nivel_anterior > 0:
+            if self.valer_xp:
                 embed.add_field(
-                    name="🎉 Level Up!",
-                    value=f"Você subiu do nível {nivel_anterior} para o nível {novo_nivel}!",
-                    inline=False
+                    name="🎁 XP Ganho",
+                    value=f"+{xp_ganho} XP",
+                    inline=True
                 )
+                
+                embed.add_field(
+                    name="📊 XP Total",
+                    value=f"{novo_xp} XP",
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="⭐ Nível",
+                    value=f"Nível {novo_nivel}",
+                    inline=True
+                )
+                
+                # Se subiu de nível
+                if subiu_nivel and nivel_anterior > 0:
+                    embed.add_field(
+                        name="🎉 Level Up!",
+                        value=f"Você subiu do nível {nivel_anterior} para o nível {novo_nivel}!",
+                        inline=False
+                    )
             
             await interaction.followup.send(embed=embed, ephemeral=True)
             
@@ -149,7 +158,7 @@ class EnqueteButton(ui.Button):
 
 
 class EnqueteView(ui.View):
-    def __init__(self, alternativas: list, resposta_correta: str, enquete_id: str):
+    def __init__(self, alternativas: list, resposta_correta: str, enquete_id: str, valer_xp: bool):
         super().__init__(timeout=None)
         
         emojis = ["🇦", "🇧", "🇨", "🇩", "🇪", "🇫", "🇬", "🇭", "🇮", "🇯"]
@@ -159,5 +168,6 @@ class EnqueteView(ui.View):
                 alternativa=alternativa,
                 emoji=emojis[i] if i < len(emojis) else "📌",
                 resposta_correta=resposta_correta,
-                enquete_id=enquete_id
+                enquete_id=enquete_id,
+                valer_xp=valer_xp
             ))

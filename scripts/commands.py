@@ -35,15 +35,16 @@ def setup_commands(context):
     CATEGORIA_VERIFICACAO_ID = context['CATEGORIA_VERIFICACAO_ID']
     ROLE_ID_ALUNO = context['ROLE_ID_ALUNO']
     
-    @bot.tree.command(name="enquete", description="Criar uma enquete com sistema de XP")
+    @bot.tree.command(name="enquete", description="Criar uma enquete com ou sem sistema de XP")
     @app_commands.describe(
-        pergunta="Pergunta da enquete",
-        alternativa_a="Alternativa A",
-        alternativa_b="Alternativa B",
+        pergunta="Pergunta da enquete (opcional)",
+        alternativa_a="Alternativa A (opcional)",
+        alternativa_b="Alternativa B (opcional)",
         alternativa_c="Alternativa C (opcional)",
         alternativa_d="Alternativa D (opcional)",
         alternativa_e="Alternativa E (opcional)",
-        resposta_correta="Alternativa correta (A, B, C, D ou E)",
+        resposta_correta="Alternativa correta (A, B, C, D ou E) - obrigatória apenas se valer XP",
+        valer_xp="Se os participantes devem ganhar XP ao responder",
         canal="Canal onde a enquete será enviada (opcional)"
     )
     @app_commands.choices(resposta_correta=[
@@ -55,22 +56,25 @@ def setup_commands(context):
     ])
     async def enquete(
         interaction: discord.Interaction,
-        pergunta: str,
-        alternativa_a: str,
-        alternativa_b: str,
-        resposta_correta: str,
+        pergunta: str = None,
+        alternativa_a: str = None,
+        alternativa_b: str = None,
+        resposta_correta: str = None,
         alternativa_c: str = None,
         alternativa_d: str = None,
         alternativa_e: str = None,
+        valer_xp: bool = True,
         canal: discord.TextChannel = None
     ):
         await interaction.response.defer(ephemeral=True)
         
         try:
+            pergunta = pergunta or "Sem pergunta definida."
+
             # Montar lista de alternativas
             alternativas_dict = {
-                "A": alternativa_a,
-                "B": alternativa_b
+                "A": alternativa_a or "Opção A",
+                "B": alternativa_b or "Opção B"
             }
             
             if alternativa_c:
@@ -80,13 +84,14 @@ def setup_commands(context):
             if alternativa_e:
                 alternativas_dict["E"] = alternativa_e
             
-            # Validar resposta correta
-            if resposta_correta not in alternativas_dict:
-                await interaction.followup.send(
-                    f"❌ A resposta correta '{resposta_correta}' não está entre as alternativas fornecidas!",
-                    ephemeral=True
-                )
-                return
+            # Validar resposta correta quando a enquete vale XP
+            if valer_xp:
+                if resposta_correta not in alternativas_dict:
+                    await interaction.followup.send(
+                        "❌ Para enquete com XP, você precisa informar uma resposta correta válida entre as alternativas fornecidas.",
+                        ephemeral=True
+                    )
+                    return
             
             # Gerar ID único para a enquete
             enquete_id = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
@@ -112,14 +117,21 @@ def setup_commands(context):
                 inline=False
             )
             
-            embed.add_field(
-                name="🎁 Recompensas",
-                value=(
-                    f"• Responder: **+10 XP**\n"
-                    f"• Acertar: **+50 XP** (5x bonus)"
-                ),
-                inline=False
-            )
+            if valer_xp:
+                embed.add_field(
+                    name="🎁 Recompensas",
+                    value=(
+                        f"• Responder: **+10 XP**\n"
+                        f"• Acertar: **+50 XP** (5x bonus)"
+                    ),
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="🎁 Recompensas",
+                    value="Esta enquete **não vale XP**.",
+                    inline=False
+                )
             
             embed.add_field(
                 name="👥 Respostas",
@@ -134,7 +146,8 @@ def setup_commands(context):
             view = EnqueteView(
                 alternativas=alternativas_lista,
                 resposta_correta=resposta_correta,
-                enquete_id=enquete_id
+                enquete_id=enquete_id,
+                valer_xp=valer_xp
             )
             
             # Enviar enquete
@@ -142,11 +155,17 @@ def setup_commands(context):
             mensagem_enquete = await canal_destino.send(embed=embed, view=view)
             
             # Resposta de confirmação
+            resposta_admin = (
+                f"✅ Resposta correta: **{resposta_correta}** (oculta dos participantes)\n"
+                if valer_xp else
+                "🧠 Modo: enquete sem XP\n"
+            )
+
             await interaction.followup.send(
                 f"✅ **Enquete criada com sucesso!**\n\n"
                 f"📊 Enquete: `{enquete_id}`\n"
                 f"📍 Canal: {canal_destino.mention}\n"
-                f"✅ Resposta correta: **{resposta_correta}** (oculta dos participantes)\n"
+                f"{resposta_admin}"
                 f"🔗 [Ir para enquete]({mensagem_enquete.jump_url})",
                 ephemeral=True
             )
