@@ -89,7 +89,8 @@ async def on_ready():
     bot.add_view(EnqueteView(
         alternativas=["A", "B"],
         resposta_correta="A",
-        enquete_id="PLACEHOLDER"
+        enquete_id="PLACEHOLDER",
+        valer_xp=True
     ))
     
     print("✅ Views persistentes registradas!")
