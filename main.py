@@ -10,6 +10,7 @@ from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
 from scripts.events import setup_events
 from scripts.commands import setup_commands
+from scripts.enquete_views import EnqueteView
 
 # Variáveis globais
 ID_DO_CANAL_VERIFICACOES = 1450481303354081331
@@ -80,6 +81,18 @@ async def on_ready():
 
     # ===== REGISTRAR VIEWS PERSISTENTES =====
     print("⭐ Registrando views persistentes...")
+    bot.add_view(StatusQuestaoView(token="PLACEHOLDER"))
+    bot.add_view(FavoritoButtonResolvidas(token="PLACEHOLDER"))
+    
+    # ✅ ADICIONAR ISTO AQUI:
+    # Registrar view de enquete (sem alternativas específicas, só template)
+    bot.add_view(EnqueteView(
+        alternativas=["A", "B"],
+        resposta_correta="A",
+        enquete_id="PLACEHOLDER"
+    ))
+    
+    print("✅ Views persistentes registradas!")
     
     # Registra as views com token placeholder
     # O Discord.py vai usar isso como template para views antigas
