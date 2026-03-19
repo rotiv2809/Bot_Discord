@@ -89,6 +89,75 @@ def consultar_aluno_por_email(email: str):
 
 
 # ─────────────────────────────────────────────
+# VERIFICAÇÃO DE EXPIRAÇÃO EM 7 DIAS
+# ─────────────────────────────────────────────
+
+def consultar_expiracao_em_dias(email: str):
+    """
+    Verifica se a assinatura do aluno expira nos próximos N dias.
+
+    Retorna o número de dias até expirar, ou None se não encontrar data.
+    Prioriza MemberKit (expires_at), depois Guru (cycle_end_date).
+    """
+    from datetime import date, datetime, timezone
+
+    hoje = date.today()
+    menor_dias = None
+
+    # MemberKit — expires_at (timestamp with time zone)
+    try:
+        response = supabase.table("memberkit_members") \
+            .select("expires_at, status, unlimited") \
+            .eq("email", email) \
+            .eq("status", "active") \
+            .execute()
+
+        for row in (response.data or []):
+            if row.get("unlimited"):
+                continue  # ilimitado, não avisa
+            expires_raw = row.get("expires_at")
+            if not expires_raw:
+                continue
+            # Parse ISO timestamp
+            if isinstance(expires_raw, str):
+                expires_dt = datetime.fromisoformat(expires_raw.replace("Z", "+00:00"))
+                expires_date = expires_dt.astimezone(timezone.utc).date()
+            else:
+                continue
+            dias = (expires_date - hoje).days
+            if menor_dias is None or dias < menor_dias:
+                menor_dias = dias
+
+    except Exception as e:
+        print(f"❌ Erro ao consultar expiração MemberKit: {e}")
+
+    # Guru — cycle_end_date (date)
+    try:
+        response = supabase.table("subscriptions") \
+            .select("cycle_end_date, last_status") \
+            .eq("contact_email", email) \
+            .eq("last_status", "active") \
+            .execute()
+
+        for row in (response.data or []):
+            end_raw = row.get("cycle_end_date")
+            if not end_raw:
+                continue
+            if isinstance(end_raw, str):
+                end_date = date.fromisoformat(end_raw)
+            else:
+                continue
+            dias = (end_date - hoje).days
+            if menor_dias is None or dias < menor_dias:
+                menor_dias = dias
+
+    except Exception as e:
+        print(f"❌ Erro ao consultar expiração Guru: {e}")
+
+    return menor_dias
+
+
+# ─────────────────────────────────────────────
 # Funções auxiliares (compatibilidade)
 # ─────────────────────────────────────────────
 
