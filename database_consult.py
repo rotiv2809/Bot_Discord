@@ -156,13 +156,24 @@ def consultar_aluno_por_email(email: str):
     return None
 
 
-def consultar_cargos_por_email(email: str) -> list:
+def consultar_cargos_por_email(email: str) -> tuple:
     """
-    Retorna lista de IDs de cargos baseado nos cursos ativos na tabela assinantes.
+    Retorna (cargos: list, alerta_memberkit: bool).
+
+    - cargos: IDs de cargos do Discord que o aluno deve receber
+    - alerta_memberkit: True se encontrado APENAS no memberkit antigo
+      (sem registro de curso → requer verificação manual)
+
+    Fontes consultadas:
+    1. assinantes (novo) via membership_level_id + assinaturas
+    2. subscriptions (Guru antigo) via product_name
+    3. memberkit_members (MemberKit antigo) — sem info de curso → alerta
     """
     emails_busca = list({email, email.lower()})
     nomes_cursos = []
+    encontrado_memberkit_apenas = False
 
+    # ── 1. Novo Supabase: assinantes + assinaturas ──
     for em in emails_busca:
         try:
             response = supabase.table("assinantes") \
@@ -189,16 +200,54 @@ def consultar_cargos_por_email(email: str) -> list:
                     nomes_cursos.append(nome)
 
         except Exception as e:
-            print(f"❌ Erro ao consultar cursos ({em}): {e}")
+            print(f"❌ Erro ao consultar cursos assinantes ({em}): {e}")
+
+    # ── 2. Guru antigo: subscriptions.product_name ──
+    for em in emails_busca:
+        try:
+            r = supabase_old.table("subscriptions") \
+                .select("product_name, last_status") \
+                .eq("contact_email", em) \
+                .eq("last_status", "active") \
+                .execute()
+
+            for row in (r.data or []):
+                nome = row.get("product_name")
+                if nome and nome not in nomes_cursos:
+                    nomes_cursos.append(nome)
+
+        except Exception as e:
+            print(f"❌ Erro ao consultar cursos subscriptions ({em}): {e}")
+
+    # ── 3. MemberKit antigo — sem info de curso, só se não achou nada acima ──
+    if not nomes_cursos:
+        for em in emails_busca:
+            try:
+                r = supabase_old.table("memberkit_members") \
+                    .select("status") \
+                    .eq("email", em) \
+                    .eq("status", "active") \
+                    .execute()
+
+                if r.data:
+                    encontrado_memberkit_apenas = True
+                    break
+
+            except Exception as e:
+                print(f"❌ Erro ao consultar memberkit_members ({em}): {e}")
+
+    if encontrado_memberkit_apenas:
+        print(f"⚠️  {email} encontrado só no MemberKit antigo — sem info de curso")
+        return [], True
 
     if not nomes_cursos:
         print(f"ℹ️  Nenhum curso ativo para {email}")
-        return []
+        return [], False
 
     print(f"📚 Cursos ativos de {email}: {nomes_cursos}")
     cargos = _identificar_cargos(nomes_cursos)
     print(f"🎖️  Cargos a atribuir: {cargos}")
-    return cargos
+    return cargos, False
 
 
 # ─────────────────────────────────────────────

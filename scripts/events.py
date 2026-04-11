@@ -1,8 +1,11 @@
 import discord
 import asyncio
-from database_consult import consultar_aluno_por_email
+from database_consult import consultar_aluno_por_email, consultar_expiracao_em_dias, consultar_cargos_por_email
 from discord.ext import tasks
 from datetime import time, datetime, timedelta
+from dados import CANAL_VERIFICACOES_PENDENTES
+
+BOT_BASE_URL = "https://seu-bot-questoes.squarecloud.app"
 
 
 def setup_events(context):
@@ -209,11 +212,43 @@ def setup_events(context):
                             tickets_verificacao_ativa.discard(user_id)
                             return
                         
-                        # Adicionar cargo
+                        # Adicionar cargo base de aluno
                         role = guild.get_role(ROLE_ID_ALUNO)
                         if role:
                             await member.add_roles(role)
-                        
+
+                        # Adicionar cargos de curso e tratar alerta de memberkit
+                        cargos_curso, alerta_memberkit = await asyncio.to_thread(consultar_cargos_por_email, email)
+                        cargos_adicionados = []
+
+                        for cargo_id in cargos_curso:
+                            cargo = guild.get_role(cargo_id)
+                            if cargo:
+                                await member.add_roles(cargo)
+                                cargos_adicionados.append(cargo.name)
+                                print(f"🎖️ Cargo de curso adicionado: {cargo.name} → {message.author}")
+
+                        # Se encontrado só no memberkit antigo → notifica canal
+                        if alerta_memberkit:
+                            canal = bot.get_channel(CANAL_VERIFICACOES_PENDENTES)
+                            if canal:
+                                embed_alerta = discord.Embed(
+                                    title="⚠️ Aluno sem registro de curso identificável",
+                                    description=(
+                                        f"O email **`{email}`** foi verificado com sucesso, mas foi encontrado "
+                                        f"**apenas no MemberKit antigo**, sem informação do curso que está fazendo.\n\n"
+                                        f"O cargo de aluno foi dado, mas o cargo de curso não pôde ser atribuído automaticamente."
+                                    ),
+                                    color=discord.Color.yellow()
+                                )
+                                embed_alerta.add_field(name="👤 Usuário", value=member.mention, inline=True)
+                                embed_alerta.add_field(name="📧 Email", value=f"`{email}`", inline=True)
+                                embed_alerta.set_footer(text="Verificação automática — requer ação manual")
+                                try:
+                                    await canal.send(embed=embed_alerta)
+                                except Exception as e:
+                                    print(f"❌ Erro ao notificar canal: {e}")
+
                         # Salvar verificação
                         await salvar_verificacao(
                             discord_id=str(user_id),
@@ -221,26 +256,39 @@ def setup_events(context):
                             username=str(message.author),
                             guild_id=str(guild.id)
                         )
-                        
+
                         # Mensagem de sucesso
                         embed_sucesso = discord.Embed(
                             title="✅ Verificação Aprovada!",
-                            description=f"Bem-vindo(a)!",
+                            description="Bem-vindo(a)!",
                             color=discord.Color.green()
                         )
-                        
+
                         embed_sucesso.add_field(
                             name="📧 Email",
                             value=f"`{email}`",
                             inline=False
                         )
-                        
+
+                        if cargos_adicionados:
+                            embed_sucesso.add_field(
+                                name="🎓 Cursos identificados",
+                                value="\n".join(f"• {c}" for c in cargos_adicionados),
+                                inline=False
+                            )
+                        elif alerta_memberkit:
+                            embed_sucesso.add_field(
+                                name="🎓 Curso",
+                                value="Não foi possível identificar seu curso automaticamente. Nossa equipe irá atribuir o cargo em breve!",
+                                inline=False
+                            )
+
                         embed_sucesso.add_field(
-                            name="🎓 Status",
+                            name="🔓 Acesso",
                             value="Você agora tem acesso completo ao servidor!",
                             inline=False
                         )
-                        
+
                         embed_sucesso.set_footer(text=f"Servidor: {guild.name}")
                         
                         await processando.edit(content=None, embed=embed_sucesso)
@@ -318,10 +366,8 @@ def setup_events(context):
                                 print(f"✅ Cargo recolocado em {member} ({email}) — estava ativo sem cargo")
 
                         elif status is None:
-                            # Não encontrado em nenhuma base — pode ser erro de sync
-                            # NÃO remove o cargo, apenas notifica no canal
+                            # Não encontrado — mantém cargo e notifica canal
                             print(f"⚠️ Email {email} não encontrado — cargo mantido, notificando canal")
-                            from dados import CANAL_VERIFICACOES_PENDENTES
                             canal = bot.get_channel(CANAL_VERIFICACOES_PENDENTES)
                             if canal:
                                 embed_alerta = discord.Embed(
@@ -342,14 +388,14 @@ def setup_events(context):
                                     print(f"❌ Erro ao notificar canal: {e}")
 
                         elif status == "inactive":
-                            # Existe mas inativo — remove cargo e notifica
+                            # Inativo — remove cargo e manda DM
                             role = guild.get_role(ROLE_ID_ALUNO)
                             if role and role in member.roles:
                                 await member.remove_roles(role)
                                 print(f"🚫 Cargo removido de {member} ({email}) — inativo")
 
                                 try:
-                                    link_renovacao = f"https://seu-bot-questoes.squarecloud.app/renovar?discord_id={discord_id}"
+                                    link_renovacao = f"{BOT_BASE_URL}/renovar?discord_id={discord_id}"
                                     embed_fim = discord.Embed(
                                         title="Seu acesso à Tropa foi encerrado.",
                                         description=(
