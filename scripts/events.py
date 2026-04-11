@@ -1,6 +1,6 @@
 import discord
 import asyncio
-from database_consult import consultar_aluno_por_email, consultar_expiracao_em_dias, consultar_cargos_por_email
+from database_consult import consultar_aluno_por_email, consultar_cargos_por_email, consultar_expiracao_em_dias
 from discord.ext import tasks
 from datetime import time, datetime, timedelta
 from dados import CANAL_VERIFICACOES_PENDENTES
@@ -16,6 +16,13 @@ def setup_events(context):
     tickets_verificacao_ativa = context['tickets_verificacao_ativa']
     ID_DO_CANAL_VERIFICACOES = context['ID_DO_CANAL_VERIFICACOES']
     ROLE_ID_ALUNO = context['ROLE_ID_ALUNO']
+
+    # Set separado para o fluxo de atribuição de cargo via DM (alunos validados manualmente)
+    tickets_curso_ativa = set()
+
+    # IDs de todos os cargos de curso para comparação
+    from database_consult import CURSOS_PRINCIPAIS, CURSOS_SECUNDARIOS
+    TODOS_CARGOS_CURSO = set(CURSOS_PRINCIPAIS.values()) | set(CURSOS_SECUNDARIOS.values())
     
     def email_ja_registrado(email: str) -> bool:
         try:
@@ -74,8 +81,119 @@ def setup_events(context):
         # ===== VERIFICAÇÃO VIA DM =====
         if isinstance(message.channel, discord.DMChannel):
             user_id = message.author.id
-            
-            # Verifica se o usuário está em processo de verificação
+
+            # ── Fluxo 2: atribuição de cargo para validados manualmente ──
+            if user_id in tickets_curso_ativa:
+                email = message.content.strip().lower()
+
+                if '@' not in email or '.' not in email:
+                    await message.channel.send(
+                        "❌ **Email inválido!**\n\n"
+                        "Por favor, digite um email válido.\n"
+                        "Exemplo: `seu.nome@gmail.com`"
+                    )
+                    return
+
+                processando = await message.channel.send(f"🔍 Verificando email: `{email}`...")
+
+                try:
+                    # Busca guild do usuário
+                    guild = None
+                    for g in bot.guilds:
+                        member = g.get_member(user_id)
+                        if member:
+                            guild = g
+                            break
+
+                    if not guild:
+                        await processando.edit(content="❌ Erro: Servidor não encontrado!")
+                        tickets_curso_ativa.discard(user_id)
+                        return
+
+                    member = guild.get_member(user_id)
+                    cargos_curso, alerta_memberkit = await asyncio.to_thread(consultar_cargos_por_email, email)
+
+                    if cargos_curso:
+                        # Encontrou curso — atribui cargos e salva verificação
+                        cargos_adicionados = []
+                        for cargo_id in cargos_curso:
+                            cargo = guild.get_role(cargo_id)
+                            if cargo:
+                                await member.add_roles(cargo)
+                                cargos_adicionados.append(cargo.name)
+
+                        # Salva na tabela verificacoes se ainda não estiver
+                        ja_registrado = supabase.table("verificacoes") \
+                            .select("discord_id") \
+                            .eq("discord_id", str(user_id)) \
+                            .execute()
+
+                        if not ja_registrado.data:
+                            await salvar_verificacao(
+                                discord_id=str(user_id),
+                                email=email,
+                                username=str(message.author),
+                                guild_id=str(guild.id)
+                            )
+                        else:
+                            # Atualiza email se já existia
+                            supabase.table("verificacoes") \
+                                .update({"email": email}) \
+                                .eq("discord_id", str(user_id)) \
+                                .execute()
+
+                        embed_ok = discord.Embed(
+                            title="✅ Curso identificado!",
+                            description="Seus cargos foram atualizados com sucesso.",
+                            color=discord.Color.green()
+                        )
+                        embed_ok.add_field(
+                            name="🎓 Cursos",
+                            value="\n".join(f"• {c}" for c in cargos_adicionados),
+                            inline=False
+                        )
+                        await processando.edit(content=None, embed=embed_ok)
+
+                    else:
+                        # Não encontrou curso — notifica canal com opções de cargo
+                        await processando.edit(
+                            content=(
+                                "⚠️ **Email não encontrado na base de dados.**\n\n"
+                                "Nossa equipe foi notificada e irá atribuir seu cargo manualmente em breve!"
+                            )
+                        )
+
+                        canal = bot.get_channel(CANAL_VERIFICACOES_PENDENTES)
+                        if canal:
+                            from scripts.verificacao_manual import BotoesCargoManual
+                            embed_alerta = discord.Embed(
+                                title="🔔 Cargo de curso não identificado",
+                                description=(
+                                    f"O email **`{email}`** não foi encontrado em nenhuma base de dados.\n\n"
+                                    f"Selecione manualmente qual cargo atribuir ao aluno:"
+                                ),
+                                color=discord.Color.orange()
+                            )
+                            embed_alerta.add_field(name="👤 Usuário", value=member.mention, inline=True)
+                            embed_alerta.add_field(name="📧 Email", value=f"`{email}`", inline=True)
+                            embed_alerta.set_footer(text="Validado manualmente — sem curso identificado")
+                            view = BotoesCargoManual(
+                                discord_user_id=user_id,
+                                email=email,
+                                guild=guild
+                            )
+                            await canal.send(embed=embed_alerta, view=view)
+
+                except Exception as e:
+                    await processando.edit(content=f"❌ Erro: {str(e)}")
+                    print(f"❌ Erro no fluxo de cargo via DM: {e}")
+                    import traceback
+                    traceback.print_exc()
+
+                tickets_curso_ativa.discard(user_id)
+                return
+
+            # ── Fluxo 1: verificação normal ──
             if user_id in tickets_verificacao_ativa:
                 email = message.content.strip()
                 
@@ -212,43 +330,11 @@ def setup_events(context):
                             tickets_verificacao_ativa.discard(user_id)
                             return
                         
-                        # Adicionar cargo base de aluno
+                        # Adicionar cargo
                         role = guild.get_role(ROLE_ID_ALUNO)
                         if role:
                             await member.add_roles(role)
-
-                        # Adicionar cargos de curso e tratar alerta de memberkit
-                        cargos_curso, alerta_memberkit = await asyncio.to_thread(consultar_cargos_por_email, email)
-                        cargos_adicionados = []
-
-                        for cargo_id in cargos_curso:
-                            cargo = guild.get_role(cargo_id)
-                            if cargo:
-                                await member.add_roles(cargo)
-                                cargos_adicionados.append(cargo.name)
-                                print(f"🎖️ Cargo de curso adicionado: {cargo.name} → {message.author}")
-
-                        # Se encontrado só no memberkit antigo → notifica canal
-                        if alerta_memberkit:
-                            canal = bot.get_channel(CANAL_VERIFICACOES_PENDENTES)
-                            if canal:
-                                embed_alerta = discord.Embed(
-                                    title="⚠️ Aluno sem registro de curso identificável",
-                                    description=(
-                                        f"O email **`{email}`** foi verificado com sucesso, mas foi encontrado "
-                                        f"**apenas no MemberKit antigo**, sem informação do curso que está fazendo.\n\n"
-                                        f"O cargo de aluno foi dado, mas o cargo de curso não pôde ser atribuído automaticamente."
-                                    ),
-                                    color=discord.Color.yellow()
-                                )
-                                embed_alerta.add_field(name="👤 Usuário", value=member.mention, inline=True)
-                                embed_alerta.add_field(name="📧 Email", value=f"`{email}`", inline=True)
-                                embed_alerta.set_footer(text="Verificação automática — requer ação manual")
-                                try:
-                                    await canal.send(embed=embed_alerta)
-                                except Exception as e:
-                                    print(f"❌ Erro ao notificar canal: {e}")
-
+                        
                         # Salvar verificação
                         await salvar_verificacao(
                             discord_id=str(user_id),
@@ -256,39 +342,26 @@ def setup_events(context):
                             username=str(message.author),
                             guild_id=str(guild.id)
                         )
-
+                        
                         # Mensagem de sucesso
                         embed_sucesso = discord.Embed(
                             title="✅ Verificação Aprovada!",
-                            description="Bem-vindo(a)!",
+                            description=f"Bem-vindo(a)!",
                             color=discord.Color.green()
                         )
-
+                        
                         embed_sucesso.add_field(
                             name="📧 Email",
                             value=f"`{email}`",
                             inline=False
                         )
-
-                        if cargos_adicionados:
-                            embed_sucesso.add_field(
-                                name="🎓 Cursos identificados",
-                                value="\n".join(f"• {c}" for c in cargos_adicionados),
-                                inline=False
-                            )
-                        elif alerta_memberkit:
-                            embed_sucesso.add_field(
-                                name="🎓 Curso",
-                                value="Não foi possível identificar seu curso automaticamente. Nossa equipe irá atribuir o cargo em breve!",
-                                inline=False
-                            )
-
+                        
                         embed_sucesso.add_field(
-                            name="🔓 Acesso",
+                            name="🎓 Status",
                             value="Você agora tem acesso completo ao servidor!",
                             inline=False
                         )
-
+                        
                         embed_sucesso.set_footer(text=f"Servidor: {guild.name}")
                         
                         await processando.edit(content=None, embed=embed_sucesso)
@@ -325,17 +398,16 @@ def setup_events(context):
             try:
                 response = supabase.table("verificacoes").select("*").execute()
                 verificacoes = response.data or []
-
                 print(f"📦 {len(verificacoes)} verificações encontradas")
 
                 TAMANHO_LOTE = 10
-                
+
                 for i in range(0, len(verificacoes), TAMANHO_LOTE):
                     lote = verificacoes[i:i + TAMANHO_LOTE]
-                    
+
                     if len(verificacoes) > TAMANHO_LOTE:
                         print(f"🔄 Processando lote {i//TAMANHO_LOTE + 1}/{(len(verificacoes) + TAMANHO_LOTE - 1)//TAMANHO_LOTE}")
-                    
+
                     for v in lote:
                         discord_id = int(v["discord_id"])
                         email = v["email"]
@@ -347,26 +419,58 @@ def setup_events(context):
                             continue
 
                         member = guild.get_member(discord_id)
-
                         if not member:
                             print(f"🧹 Usuário {discord_id} não está mais no servidor, removendo registro")
-                            supabase.table("verificacoes") \
-                                .delete() \
-                                .eq("discord_id", str(discord_id)) \
-                                .execute()
+                            supabase.table("verificacoes").delete().eq("discord_id", str(discord_id)).execute()
                             continue
 
                         status = await asyncio.to_thread(consultar_aluno_por_email, email)
 
                         if status == "active":
-                            # Ativo — garante que o cargo está presente
+                            # Garante cargo base
                             role = guild.get_role(ROLE_ID_ALUNO)
                             if role and role not in member.roles:
                                 await member.add_roles(role)
-                                print(f"✅ Cargo recolocado em {member} ({email}) — estava ativo sem cargo")
+                                print(f"✅ Cargo base recolocado em {member} ({email})")
+
+                            # ── Corrige cargos de curso ──
+                            cargos_corretos, alerta_memberkit = await asyncio.to_thread(consultar_cargos_por_email, email)
+                            cargos_corretos_set = set(cargos_corretos)
+
+                            # Cargos de curso que o membro tem atualmente
+                            cargos_atuais = {r.id for r in member.roles if r.id in TODOS_CARGOS_CURSO}
+
+                            # Remove cargos errados
+                            for cargo_id in cargos_atuais - cargos_corretos_set:
+                                cargo = guild.get_role(cargo_id)
+                                if cargo:
+                                    await member.remove_roles(cargo)
+                                    print(f"🔄 Cargo de curso removido: {cargo.name} de {member}")
+
+                            # Adiciona cargos faltando
+                            for cargo_id in cargos_corretos_set - cargos_atuais:
+                                cargo = guild.get_role(cargo_id)
+                                if cargo:
+                                    await member.add_roles(cargo)
+                                    print(f"🔄 Cargo de curso adicionado: {cargo.name} para {member}")
+
+                            if alerta_memberkit:
+                                canal = bot.get_channel(CANAL_VERIFICACOES_PENDENTES)
+                                if canal:
+                                    embed_alerta = discord.Embed(
+                                        title="⚠️ Aluno sem curso identificável",
+                                        description=(
+                                            f"O email **`{email}`** foi encontrado apenas no MemberKit antigo, "
+                                            f"sem informação de curso.\n\n**O cargo de curso não pôde ser atribuído automaticamente.**"
+                                        ),
+                                        color=discord.Color.yellow()
+                                    )
+                                    embed_alerta.add_field(name="👤 Usuário", value=member.mention, inline=True)
+                                    embed_alerta.add_field(name="📧 Email", value=f"`{email}`", inline=True)
+                                    await canal.send(embed=embed_alerta)
 
                         elif status is None:
-                            # Não encontrado — mantém cargo e notifica canal
+                            # Não encontrado — mantém cargo, notifica canal
                             print(f"⚠️ Email {email} não encontrado — cargo mantido, notificando canal")
                             canal = bot.get_channel(CANAL_VERIFICACOES_PENDENTES)
                             if canal:
@@ -393,7 +497,6 @@ def setup_events(context):
                             if role and role in member.roles:
                                 await member.remove_roles(role)
                                 print(f"🚫 Cargo removido de {member} ({email}) — inativo")
-
                                 try:
                                     link_renovacao = f"{BOT_BASE_URL}/renovar?discord_id={discord_id}"
                                     embed_fim = discord.Embed(
@@ -419,14 +522,64 @@ def setup_events(context):
                                 except Exception as e:
                                     print(f"❌ Erro ao enviar DM de encerramento: {e}")
 
-                            supabase.table("verificacoes") \
-                                .delete() \
-                                .eq("discord_id", str(discord_id)) \
-                                .execute()
-                    
+                            supabase.table("verificacoes").delete().eq("discord_id", str(discord_id)).execute()
+
                     if i + TAMANHO_LOTE < len(verificacoes):
                         await asyncio.sleep(2)
-                
+
+                # ── Após verificar todos: detectar alunos sem cargo de curso ──
+                print("🔍 Verificando alunos sem cargo de curso...")
+                for guild in bot.guilds:
+                    role_aluno = guild.get_role(ROLE_ID_ALUNO)
+                    if not role_aluno:
+                        continue
+
+                    for member in guild.members:
+                        if role_aluno not in member.roles:
+                            continue
+
+                        # Tem cargo de aluno — verifica se tem algum cargo de curso
+                        tem_cargo_curso = any(r.id in TODOS_CARGOS_CURSO for r in member.roles)
+                        if tem_cargo_curso:
+                            continue
+
+                        # Não tem cargo de curso — verifica se está na tabela verificacoes
+                        reg = supabase.table("verificacoes") \
+                            .select("discord_id") \
+                            .eq("discord_id", str(member.id)) \
+                            .execute()
+
+                        if reg.data:
+                            # Está na tabela mas sem cargo de curso → a correção já foi feita acima
+                            # Só cai aqui se não foi encontrado nas bases (alerta_memberkit)
+                            continue
+
+                        # Não está na tabela → foi validado manualmente, pede email via DM
+                        if member.id not in tickets_curso_ativa:
+                            tickets_curso_ativa.add(member.id)
+                            try:
+                                embed_dm = discord.Embed(
+                                    title="📋 Identificação de curso necessária",
+                                    description=(
+                                        "Olá! Identificamos que você tem acesso ao servidor, "
+                                        "mas ainda não identificamos qual curso você está fazendo.\n\n"
+                                        "Por favor, **digite seu email cadastrado** para que possamos "
+                                        "atribuir o cargo do seu curso automaticamente."
+                                    ),
+                                    color=discord.Color.blurple()
+                                )
+                                embed_dm.set_footer(text="Tropa do Arcanjo")
+                                await member.send(embed=embed_dm)
+                                print(f"📬 DM de identificação enviada para {member}")
+                            except discord.Forbidden:
+                                tickets_curso_ativa.discard(member.id)
+                                print(f"⚠️ DMs fechadas para {member}")
+                            except Exception as e:
+                                tickets_curso_ativa.discard(member.id)
+                                print(f"❌ Erro ao enviar DM para {member}: {e}")
+
+                        await asyncio.sleep(0.5)
+
                 print(f"✅ Verificação diária concluída!")
 
             except Exception as e:

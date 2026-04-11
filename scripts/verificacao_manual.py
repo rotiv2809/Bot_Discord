@@ -257,3 +257,95 @@ async def solicitar_verificacao_manual(bot, discord_user_id: int, discord_userna
         import traceback
         traceback.print_exc()
         return False
+
+# ─────────────────────────────────────────────
+# BOTÕES DE CARGO MANUAL (quando email não encontrado no fluxo de curso)
+# ─────────────────────────────────────────────
+
+class BotoesCargoManual(ui.View):
+    """Botões para o mod escolher qual cargo de curso atribuir manualmente"""
+
+    OPCOES_CARGO = [
+        ("EsPCEx",      "espcex",   "🎯"),
+        ("EFOMM/AFA",   "efomm",    "⚓"),
+        ("ESA",         "esa",      "🪖"),
+        ("EEAR",        "eear",     "✈️"),
+        ("EPCAR",       "epcar",    "🚀"),
+        ("Nivelamento", "nivelamento", "📚"),
+        ("Mentoria",    "mentoria", "🧠"),
+        ("Live",        "live",     "🎥"),
+    ]
+
+    def __init__(self, discord_user_id: int, email: str, guild):
+        super().__init__(timeout=None)
+        self.discord_user_id = discord_user_id
+        self.email = email
+        self.guild = guild
+
+        from database_consult import CURSOS_PRINCIPAIS, CURSOS_SECUNDARIOS
+        self.todos_cargos = {**CURSOS_PRINCIPAIS, **CURSOS_SECUNDARIOS}
+
+        for label, keyword, emoji in self.OPCOES_CARGO:
+            cargo_id = self.todos_cargos.get(keyword, 0)
+            if not cargo_id:
+                continue
+            btn = ui.Button(
+                label=label,
+                emoji=emoji,
+                style=discord.ButtonStyle.primary,
+                custom_id=f"cargo_manual_{discord_user_id}_{keyword}"
+            )
+            btn.callback = self._fazer_callback(keyword, cargo_id)
+            self.add_item(btn)
+
+    def _fazer_callback(self, keyword: str, cargo_id: int):
+        async def callback(interaction: discord.Interaction):
+            await interaction.response.defer(ephemeral=True)
+
+            try:
+                for item in self.children:
+                    item.disabled = True
+                await interaction.message.edit(view=self)
+
+                member = self.guild.get_member(self.discord_user_id)
+                if not member:
+                    await interaction.followup.send("❌ Usuário não encontrado no servidor.", ephemeral=True)
+                    return
+
+                cargo = self.guild.get_role(cargo_id)
+                if cargo:
+                    await member.add_roles(cargo)
+
+                # Atualiza embed
+                embed = interaction.message.embeds[0]
+                embed.color = discord.Color.green()
+                embed.title = "✅ Cargo atribuído manualmente"
+                embed.add_field(name="🎖️ Cargo", value=cargo.name if cargo else keyword, inline=True)
+                embed.add_field(name="👮 Por", value=interaction.user.mention, inline=True)
+                embed.add_field(name="⏰ Horário", value=datetime.now().strftime("%d/%m/%Y %H:%M"), inline=True)
+                await interaction.message.edit(embed=embed, view=self)
+
+                await interaction.followup.send(
+                    f"✅ Cargo **{cargo.name if cargo else keyword}** atribuído a {member.mention}.",
+                    ephemeral=True
+                )
+
+                # Notifica o aluno via DM
+                try:
+                    embed_dm = discord.Embed(
+                        title="✅ Cargo de curso atribuído!",
+                        description=f"Nossa equipe identificou seu curso e adicionou o cargo **{cargo.name if cargo else keyword}**.",
+                        color=discord.Color.green()
+                    )
+                    embed_dm.set_footer(text="Tropa do Arcanjo")
+                    await member.send(embed=embed_dm)
+                except Exception:
+                    pass
+
+                print(f"✅ Cargo manual '{keyword}' atribuído a {member} por {interaction.user}")
+
+            except Exception as e:
+                await interaction.followup.send(f"❌ Erro: {str(e)}", ephemeral=True)
+                print(f"Erro em BotoesCargoManual: {e}")
+
+        return callback
