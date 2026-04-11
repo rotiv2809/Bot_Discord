@@ -1,60 +1,88 @@
 from supabase import create_client, Client
-from dados import SUPABASE_URL, SUPABASE_KEY
+from dados import SUPABASE_URL_2, SUPABASE_KEY_2
 
-# Único cliente Supabase — contém tabelas da Guru e da MemberKit
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-
-# ─────────────────────────────────────────────
-# GURU — tabela: subscriptions
-# ─────────────────────────────────────────────
-
-def _consultar_guru(email: str):
-    """
-    Retorna (existe: bool, ativo: bool)
-    Tabela: subscriptions | campo email: contact_email | status: last_status
-    """
-    try:
-        response = supabase.table("subscriptions") \
-            .select("last_status") \
-            .eq("contact_email", email) \
-            .execute()
-
-        if not response.data:
-            return False, False
-
-        statuses = [row.get("last_status") for row in response.data]
-        return True, "active" in statuses
-
-    except Exception as e:
-        print(f"❌ Erro ao consultar Guru: {e}")
-        return False, False
+supabase: Client = create_client(SUPABASE_URL_2, SUPABASE_KEY_2)
 
 
 # ─────────────────────────────────────────────
-# MEMBERKIT — tabela: memberkit_members
+# MAPEAMENTO DE CURSOS → CARGOS DO DISCORD
+# ─────────────────────────────────────────────
+# Preencha os IDs dos cargos conforme necessário.
+# A chave é uma palavra-chave que aparece no nome do curso (case-insensitive).
+
+CURSOS_PRINCIPAIS = {
+    "espcex":   1492491226237239356,  # ← ID do cargo EsPCEx
+    "efomm":    1492491305022914721,  # ← ID do cargo EFOMM
+    "esa":      1492494369553514658,  # ← ID do cargo ESA
+    "eear":     1492494507294326864,  # ← ID do cargo EEAR
+    "epcar":    1492494568032174150,  # ← ID do cargo EPCAR
+    "afa":      1492494609366913024,  # ← ID do cargo AFA
+}
+
+CURSOS_SECUNDARIOS = {
+    "nivelamento":  1492494698705719387,  # ← ID do cargo Nivelamento
+    "mentoria":     1492494738610196520,  # ← ID do cargo Mentoria
+    "live":         1492494788866347248,  # ← ID do cargo Live
+}
+
+
+def _identificar_cargos(nomes_cursos: list) -> list:
+    """
+    Dado uma lista de nomes de cursos ativos, retorna os IDs de cargo
+    que devem ser atribuídos ao aluno.
+
+    Regra:
+    - Se tiver qualquer curso principal → retorna só os cargos principais
+    - Se tiver apenas cursos secundários → retorna os cargos secundários
+    """
+    cargos_principais = []
+    cargos_secundarios = []
+
+    for nome in nomes_cursos:
+        nome_lower = nome.lower()
+        eh_principal = False
+
+        for keyword, cargo_id in CURSOS_PRINCIPAIS.items():
+            if keyword in nome_lower:
+                eh_principal = True
+                if cargo_id and cargo_id not in cargos_principais:
+                    cargos_principais.append(cargo_id)
+                break
+
+        if not eh_principal:
+            for keyword, cargo_id in CURSOS_SECUNDARIOS.items():
+                if keyword in nome_lower:
+                    if cargo_id and cargo_id not in cargos_secundarios:
+                        cargos_secundarios.append(cargo_id)
+                    break
+
+    return cargos_principais if cargos_principais else cargos_secundarios
+
+
+# ─────────────────────────────────────────────
+# CONSULTAS NA TABELA assinantes
 # ─────────────────────────────────────────────
 
-def _consultar_memberkit(email: str):
+def _buscar_assinantes(email: str) -> list:
     """
-    Retorna (existe: bool, ativo: bool)
-    Tabela: memberkit_members | campo email: email | status: status
+    Busca todos os registros do email na tabela assinantes.
+    Tenta o email original e em minúsculo.
     """
-    try:
-        response = supabase.table("memberkit_members") \
-            .select("status") \
-            .eq("email", email) \
-            .execute()
+    emails_busca = list({email, email.lower()})
+    registros = []
 
-        if not response.data:
-            return False, False
+    for em in emails_busca:
+        try:
+            response = supabase.table("assinantes") \
+                .select("status, membership_level_id, expire_date") \
+                .eq("email", em) \
+                .execute()
+            if response.data:
+                registros.extend(response.data)
+        except Exception as e:
+            print(f"❌ Erro ao buscar assinantes ({em}): {e}")
 
-        statuses = [row.get("status") for row in response.data]
-        return True, "active" in statuses
-
-    except Exception as e:
-        print(f"❌ Erro ao consultar MemberKit: {e}")
-        return False, False
+    return registros
 
 
 # ─────────────────────────────────────────────
@@ -63,98 +91,105 @@ def _consultar_memberkit(email: str):
 
 def consultar_aluno_por_email(email: str):
     """
-    Consulta Guru (subscriptions) e MemberKit (memberkit_members) no mesmo Supabase.
+    Consulta a tabela assinantes.
 
     Retorna:
-        'active'   -> ativo em QUALQUER das duas plataformas → dá o cargo
-        'inactive' -> email existe mas inativo nas duas       → sem cargo
-        None       -> não encontrado em nenhuma              → verificação manual
+        'active'   -> tem ao menos uma assinatura ativa
+        'inactive' -> email existe mas sem assinatura ativa
+        None       -> não encontrado → verificação manual
     """
-    existe_guru,      ativo_guru      = _consultar_guru(email)
-    existe_memberkit, ativo_memberkit = _consultar_memberkit(email)
+    registros = _buscar_assinantes(email)
 
-    if ativo_guru or ativo_memberkit:
-        origem = []
-        if ativo_guru:      origem.append("Guru")
-        if ativo_memberkit: origem.append("MemberKit")
-        print(f"✅ Aluno ATIVO em: {', '.join(origem)} — {email}")
+    if not registros:
+        print(f"❌ Email {email} não encontrado → verificação manual")
+        return None
+
+    statuses = [r.get("status") for r in registros]
+
+    if "active" in statuses:
+        print(f"✅ Aluno ATIVO — {email}")
         return "active"
 
-    if existe_guru or existe_memberkit:
-        print(f"⚠️  Email {email} existe mas INATIVO (Guru={existe_guru}, MemberKit={existe_memberkit})")
-        return "inactive"
+    print(f"⚠️  Email {email} existe mas INATIVO")
+    return "inactive"
 
-    print(f"❌ Email {email} não encontrado em nenhuma base → verificação manual")
-    return None
+
+def consultar_cargos_por_email(email: str) -> list:
+    """
+    Retorna lista de IDs de cargos do Discord que o aluno deve receber,
+    baseado nos cursos ativos na tabela assinantes.
+    """
+    emails_busca = list({email, email.lower()})
+    nomes_cursos = []
+
+    for em in emails_busca:
+        try:
+            response = supabase.table("assinantes") \
+                .select("membership_level_id") \
+                .eq("email", em) \
+                .eq("status", "active") \
+                .execute()
+
+            if not response.data:
+                continue
+
+            level_ids = list({r["membership_level_id"] for r in response.data if r.get("membership_level_id")})
+
+            if not level_ids:
+                continue
+
+            levels = supabase.table("assinaturas") \
+                .select("id, name") \
+                .in_("id", level_ids) \
+                .execute()
+
+            for row in (levels.data or []):
+                nome = row.get("name")
+                if nome and nome not in nomes_cursos:
+                    nomes_cursos.append(nome)
+
+        except Exception as e:
+            print(f"❌ Erro ao consultar cursos ({em}): {e}")
+
+    if not nomes_cursos:
+        print(f"ℹ️  Nenhum curso ativo para {email}")
+        return []
+
+    print(f"📚 Cursos ativos de {email}: {nomes_cursos}")
+    cargos = _identificar_cargos(nomes_cursos)
+    print(f"🎖️  Cargos a atribuir: {cargos}")
+    return cargos
 
 
 # ─────────────────────────────────────────────
-# VERIFICAÇÃO DE EXPIRAÇÃO EM 7 DIAS
+# VERIFICAÇÃO DE EXPIRAÇÃO — ÚLTIMA ASSINATURA
 # ─────────────────────────────────────────────
 
 def consultar_expiracao_em_dias(email: str):
     """
-    Verifica se a assinatura do aluno expira nos próximos N dias.
-
-    Retorna o número de dias até expirar, ou None se não encontrar data.
-    Prioriza MemberKit (expires_at), depois Guru (cycle_end_date).
+    Retorna quantos dias faltam para a ÚLTIMA assinatura ativa vencer.
+    Só avisa quando não vai sobrar nenhuma assinatura ativa depois.
     """
-    from datetime import date, datetime, timezone
+    from datetime import date
 
     hoje = date.today()
-    menor_dias = None
+    registros = _buscar_assinantes(email)
 
-    # MemberKit — expires_at (timestamp with time zone)
-    try:
-        response = supabase.table("memberkit_members") \
-            .select("expires_at, status, unlimited") \
-            .eq("email", email) \
-            .eq("status", "active") \
-            .execute()
+    datas = []
+    for r in registros:
+        if r.get("status") != "active":
+            continue
+        end_raw = r.get("expire_date")
+        if end_raw and isinstance(end_raw, str):
+            try:
+                datas.append(date.fromisoformat(end_raw))
+            except ValueError:
+                pass
 
-        for row in (response.data or []):
-            if row.get("unlimited"):
-                continue  # ilimitado, não avisa
-            expires_raw = row.get("expires_at")
-            if not expires_raw:
-                continue
-            # Parse ISO timestamp
-            if isinstance(expires_raw, str):
-                expires_dt = datetime.fromisoformat(expires_raw.replace("Z", "+00:00"))
-                expires_date = expires_dt.astimezone(timezone.utc).date()
-            else:
-                continue
-            dias = (expires_date - hoje).days
-            if menor_dias is None or dias < menor_dias:
-                menor_dias = dias
+    if not datas:
+        return None
 
-    except Exception as e:
-        print(f"❌ Erro ao consultar expiração MemberKit: {e}")
-
-    # Guru — cycle_end_date (date)
-    try:
-        response = supabase.table("subscriptions") \
-            .select("cycle_end_date, last_status") \
-            .eq("contact_email", email) \
-            .eq("last_status", "active") \
-            .execute()
-
-        for row in (response.data or []):
-            end_raw = row.get("cycle_end_date")
-            if not end_raw:
-                continue
-            if isinstance(end_raw, str):
-                end_date = date.fromisoformat(end_raw)
-            else:
-                continue
-            dias = (end_date - hoje).days
-            if menor_dias is None or dias < menor_dias:
-                menor_dias = dias
-
-    except Exception as e:
-        print(f"❌ Erro ao consultar expiração Guru: {e}")
-
-    return menor_dias
+    return (max(datas) - hoje).days
 
 
 # ─────────────────────────────────────────────

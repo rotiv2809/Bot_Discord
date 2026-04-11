@@ -1,6 +1,6 @@
 import discord
 import asyncio
-from database_consult import consultar_aluno_por_email, consultar_expiracao_em_dias
+from database_consult import consultar_aluno_por_email, consultar_expiracao_em_dias, consultar_cargos_por_email
 from discord.ext import tasks
 from datetime import time, datetime, timedelta
 
@@ -209,10 +209,20 @@ def setup_events(context):
                             tickets_verificacao_ativa.discard(user_id)
                             return
                         
-                        # Adicionar cargo
+                        # Adicionar cargo base de aluno
                         role = guild.get_role(ROLE_ID_ALUNO)
                         if role:
                             await member.add_roles(role)
+
+                        # Adicionar cargos de curso (EsPCEx, ESA, EFOMM, etc.)
+                        cargos_curso = await asyncio.to_thread(consultar_cargos_por_email, email)
+                        cargos_adicionados = []
+                        for cargo_id in cargos_curso:
+                            cargo = guild.get_role(cargo_id)
+                            if cargo:
+                                await member.add_roles(cargo)
+                                cargos_adicionados.append(cargo.name)
+                                print(f"🎖️ Cargo de curso adicionado: {cargo.name} → {message.author}")
                         
                         # Salvar verificação
                         await salvar_verificacao(
@@ -228,15 +238,22 @@ def setup_events(context):
                             description=f"Bem-vindo(a)!",
                             color=discord.Color.green()
                         )
-                        
+
                         embed_sucesso.add_field(
                             name="📧 Email",
                             value=f"`{email}`",
                             inline=False
                         )
-                        
+
+                        if cargos_adicionados:
+                            embed_sucesso.add_field(
+                                name="🎓 Cursos identificados",
+                                value="\n".join(f"• {c}" for c in cargos_adicionados),
+                                inline=False
+                            )
+
                         embed_sucesso.add_field(
-                            name="🎓 Status",
+                            name="🔓 Acesso",
                             value="Você agora tem acesso completo ao servidor!",
                             inline=False
                         )
@@ -338,129 +355,5 @@ def setup_events(context):
 
         verificacao_diaria.start()
     
-    def iniciar_aviso_expiracao():
-        """Task diária que avisa alunos 7 dias antes do plano vencer"""
-
-        @tasks.loop(hours=24)
-        async def aviso_expiracao():
-            print("⏰ Verificando assinaturas prestes a vencer...")
-
-            try:
-                response = supabase.table("verificacoes").select("*").execute()
-                verificacoes = response.data or []
-
-                avisos_enviados = 0
-
-                for v in verificacoes:
-                    discord_id = int(v["discord_id"])
-                    email = v["email"]
-                    guild_id = int(v["guild_id"])
-
-                    # Verifica se já enviamos aviso recentemente (evita spam)
-                    aviso_existente = supabase.table("avisos_expiracao") \
-                        .select("id") \
-                        .eq("discord_id", str(discord_id)) \
-                        .gte("enviado_em", (datetime.utcnow() - timedelta(days=6)).isoformat()) \
-                        .execute()
-
-                    if aviso_existente.data:
-                        continue  # já avisou nos últimos 6 dias
-
-                    dias = await asyncio.to_thread(consultar_expiracao_em_dias, email)
-
-                    if dias is None:
-                        continue  # sem data de expiração cadastrada
-
-                    if dias > 7 or dias < 0:
-                        continue  # ainda longe, ou já vencido (a verificacao_diaria cuida disso)
-
-                    # Busca o membro no Discord
-                    guild = bot.get_guild(guild_id)
-                    if not guild:
-                        continue
-
-                    member = guild.get_member(discord_id)
-                    if not member:
-                        continue
-
-                    # Monta a DM de aviso
-                    if dias == 0:
-                        titulo = "🚨 Seu plano vence HOJE!"
-                        descricao = (
-                            "Seu acesso ao servidor expira **hoje**.\n\n"
-                            "Renove agora para não perder o acesso aos materiais e à comunidade."
-                        )
-                    elif dias == 1:
-                        titulo = "⚠️ Seu plano vence amanhã!"
-                        descricao = (
-                            "Seu acesso ao servidor expira **amanhã**.\n\n"
-                            "Renove antes que seu acesso seja removido automaticamente."
-                        )
-                    else:
-                        titulo = f"⏳ Seu plano vence em {dias} dias"
-                        descricao = (
-                            f"Seu acesso ao servidor expira em **{dias} dias**.\n\n"
-                            "Renove com antecedência para não ter interrupção no acesso."
-                        )
-
-                    embed = discord.Embed(
-                        title=titulo,
-                        description=descricao,
-                        color=discord.Color.orange()
-                    )
-
-                    embed.add_field(
-                        name="📧 Email cadastrado",
-                        value=f"`{email}`",
-                        inline=False
-                    )
-
-                    embed.add_field(
-                        name="🔄 Como renovar?",
-                        value=(
-                            "👉 **[Clique aqui para renovar seu plano](https://www.tropadoarcanjo.com.br/cursos/)**\n\n"
-                            "Dúvidas? Abra um ticket em <#1431767520280317992>"
-                        ),
-                        inline=False
-                    )
-
-                    embed.set_footer(text="Tropa do Arcanjo • Renovação automática")
-
-                    try:
-                        await member.send(embed=embed)
-
-                        # Registra que o aviso foi enviado
-                        supabase.table("avisos_expiracao").insert({
-                            "discord_id": str(discord_id),
-                            "email": email,
-                            "dias_restantes": dias,
-                            "enviado_em": datetime.utcnow().isoformat()
-                        }).execute()
-
-                        avisos_enviados += 1
-                        print(f"📬 Aviso enviado para {member} ({email}) — {dias} dia(s) restante(s)")
-
-                    except discord.Forbidden:
-                        print(f"⚠️ Não foi possível enviar DM para {discord_id} (DMs fechadas)")
-                    except Exception as e:
-                        print(f"❌ Erro ao enviar aviso para {discord_id}: {e}")
-
-                    await asyncio.sleep(1)  # respeita rate limit
-
-                print(f"✅ Verificação de expiração concluída — {avisos_enviados} aviso(s) enviado(s)")
-
-            except Exception as e:
-                print(f"❌ Erro na task aviso_expiracao: {e}")
-                import traceback
-                traceback.print_exc()
-
-        @aviso_expiracao.before_loop
-        async def before_aviso():
-            await bot.wait_until_ready()
-            print("⏳ Task de aviso de expiração aguardando bot ficar pronto")
-
-        aviso_expiracao.start()
-
     # Iniciar sistema
     iniciar_verificacao_diaria()
-    iniciar_aviso_expiracao()

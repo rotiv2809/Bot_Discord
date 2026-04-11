@@ -11,6 +11,7 @@ from google.oauth2.service_account import Credentials
 from scripts.events import setup_events
 from scripts.commands import setup_commands
 from scripts.enquete_views import EnqueteView
+from scripts.renovar_redirect import start_web_server
 
 # Variáveis globais
 ID_DO_CANAL_VERIFICACOES = 1450481303354081331
@@ -112,6 +113,9 @@ async def on_ready():
 
 if __name__ == "__main__":
     print("🚀 Iniciando serviços...\n")
+
+    # Inicia o servidor Flask (rastreamento de renovações)
+    start_web_server()
 
     try:
         bot.run(DISCORD_TOKEN)
