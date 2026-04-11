@@ -1,40 +1,34 @@
 from supabase import create_client, Client
-from dados import SUPABASE_URL_2, SUPABASE_KEY_2
+from dados import SUPABASE_URL, SUPABASE_KEY, SUPABASE_URL_2, SUPABASE_KEY_2
 
+# Supabase antigo — subscriptions + memberkit_members
+supabase_old: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# Supabase novo — assinantes + assinaturas
 supabase: Client = create_client(SUPABASE_URL_2, SUPABASE_KEY_2)
 
 
 # ─────────────────────────────────────────────
 # MAPEAMENTO DE CURSOS → CARGOS DO DISCORD
 # ─────────────────────────────────────────────
-# Preencha os IDs dos cargos conforme necessário.
-# A chave é uma palavra-chave que aparece no nome do curso (case-insensitive).
 
 CURSOS_PRINCIPAIS = {
-    "espcex":   1492491226237239356,  # ← ID do cargo EsPCEx
-    "efomm":    1492491305022914721,  # ← ID do cargo EFOMM
-    "esa":      1492494369553514658,  # ← ID do cargo ESA
-    "eear":     1492494507294326864,  # ← ID do cargo EEAR
-    "epcar":    1492494568032174150,  # ← ID do cargo EPCAR
-    "afa":      1492494609366913024,  # ← ID do cargo AFA
+    "espcex":   1492491226237239356,
+    "efomm":    1492491305022914721,
+    "esa":      1492494369553514658,
+    "eear":     1492494507294326864,
+    "epcar":    1492494568032174150,
+    "afa":      1492494609366913024,
 }
 
 CURSOS_SECUNDARIOS = {
-    "nivelamento":  1492494698705719387,  # ← ID do cargo Nivelamento
-    "mentoria":     1492494738610196520,  # ← ID do cargo Mentoria
-    "live":         1492494788866347248,  # ← ID do cargo Live
+    "nivelamento":  1492494698705719387,
+    "mentoria":     1492494738610196520,
+    "live":         1492494788866347248,
 }
 
 
 def _identificar_cargos(nomes_cursos: list) -> list:
-    """
-    Dado uma lista de nomes de cursos ativos, retorna os IDs de cargo
-    que devem ser atribuídos ao aluno.
-
-    Regra:
-    - Se tiver qualquer curso principal → retorna só os cargos principais
-    - Se tiver apenas cursos secundários → retorna os cargos secundários
-    """
     cargos_principais = []
     cargos_secundarios = []
 
@@ -60,14 +54,10 @@ def _identificar_cargos(nomes_cursos: list) -> list:
 
 
 # ─────────────────────────────────────────────
-# CONSULTAS NA TABELA assinantes
+# CONSULTA — NOVO SUPABASE (assinantes)
 # ─────────────────────────────────────────────
 
 def _buscar_assinantes(email: str) -> list:
-    """
-    Busca todos os registros do email na tabela assinantes.
-    Tenta o email original e em minúsculo.
-    """
     emails_busca = list({email, email.lower()})
     registros = []
 
@@ -86,38 +76,89 @@ def _buscar_assinantes(email: str) -> list:
 
 
 # ─────────────────────────────────────────────
+# CONSULTA — SUPABASE ANTIGO (subscriptions + memberkit_members)
+# ─────────────────────────────────────────────
+
+def _buscar_legado(email: str) -> tuple:
+    """
+    Retorna (existe: bool, ativo: bool) consultando as tabelas antigas.
+    """
+    emails_busca = list({email, email.lower()})
+    existe = False
+    ativo = False
+
+    for em in emails_busca:
+        # Guru — subscriptions
+        try:
+            r = supabase_old.table("subscriptions") \
+                .select("last_status") \
+                .eq("contact_email", em) \
+                .execute()
+            if r.data:
+                existe = True
+                if any(row.get("last_status") == "active" for row in r.data):
+                    ativo = True
+        except Exception as e:
+            print(f"❌ Erro ao buscar subscriptions ({em}): {e}")
+
+        # MemberKit — memberkit_members
+        try:
+            r = supabase_old.table("memberkit_members") \
+                .select("status") \
+                .eq("email", em) \
+                .execute()
+            if r.data:
+                existe = True
+                if any(row.get("status") == "active" for row in r.data):
+                    ativo = True
+        except Exception as e:
+            print(f"❌ Erro ao buscar memberkit_members ({em}): {e}")
+
+    return existe, ativo
+
+
+# ─────────────────────────────────────────────
 # FUNÇÃO PRINCIPAL
 # ─────────────────────────────────────────────
 
 def consultar_aluno_por_email(email: str):
     """
-    Consulta a tabela assinantes.
+    Consulta as 3 tabelas: assinantes (novo), subscriptions e memberkit_members (antigo).
 
     Retorna:
-        'active'   -> tem ao menos uma assinatura ativa
-        'inactive' -> email existe mas sem assinatura ativa
-        None       -> não encontrado → verificação manual
+        'active'   -> ativo em qualquer das fontes
+        'inactive' -> existe em alguma mas inativo em todas
+        None       -> não encontrado em nenhuma → verificação manual
     """
+    # 1. Novo Supabase
     registros = _buscar_assinantes(email)
+    if registros:
+        statuses = [r.get("status") for r in registros]
+        if "active" in statuses:
+            print(f"✅ Aluno ATIVO (assinantes) — {email}")
+            return "active"
+        # existe mas inativo no novo — ainda verifica legado antes de retornar inactive
+        existe_novo = True
+    else:
+        existe_novo = False
 
-    if not registros:
-        print(f"❌ Email {email} não encontrado → verificação manual")
-        return None
-
-    statuses = [r.get("status") for r in registros]
-
-    if "active" in statuses:
-        print(f"✅ Aluno ATIVO — {email}")
+    # 2. Supabase antigo
+    existe_legado, ativo_legado = _buscar_legado(email)
+    if ativo_legado:
+        print(f"✅ Aluno ATIVO (legado) — {email}")
         return "active"
 
-    print(f"⚠️  Email {email} existe mas INATIVO")
-    return "inactive"
+    if existe_novo or existe_legado:
+        print(f"⚠️  Email {email} existe mas INATIVO em todas as bases")
+        return "inactive"
+
+    print(f"❌ Email {email} não encontrado em nenhuma base → verificação manual")
+    return None
 
 
 def consultar_cargos_por_email(email: str) -> list:
     """
-    Retorna lista de IDs de cargos do Discord que o aluno deve receber,
-    baseado nos cursos ativos na tabela assinantes.
+    Retorna lista de IDs de cargos baseado nos cursos ativos na tabela assinantes.
     """
     emails_busca = list({email, email.lower()})
     nomes_cursos = []
@@ -134,7 +175,6 @@ def consultar_cargos_por_email(email: str) -> list:
                 continue
 
             level_ids = list({r["membership_level_id"] for r in response.data if r.get("membership_level_id")})
-
             if not level_ids:
                 continue
 
@@ -168,28 +208,65 @@ def consultar_cargos_por_email(email: str) -> list:
 def consultar_expiracao_em_dias(email: str):
     """
     Retorna quantos dias faltam para a ÚLTIMA assinatura ativa vencer.
-    Só avisa quando não vai sobrar nenhuma assinatura ativa depois.
+    Consulta assinantes (novo) e subscriptions/memberkit (antigo).
     """
-    from datetime import date
+    from datetime import date, datetime, timezone
 
     hoje = date.today()
-    registros = _buscar_assinantes(email)
+    todas_datas = []
 
-    datas = []
-    for r in registros:
+    # Novo — assinantes.expire_date
+    for r in _buscar_assinantes(email):
         if r.get("status") != "active":
             continue
         end_raw = r.get("expire_date")
         if end_raw and isinstance(end_raw, str):
             try:
-                datas.append(date.fromisoformat(end_raw))
+                todas_datas.append(date.fromisoformat(end_raw))
             except ValueError:
                 pass
 
-    if not datas:
+    # Antigo — subscriptions.cycle_end_date
+    emails_busca = list({email, email.lower()})
+    for em in emails_busca:
+        try:
+            r = supabase_old.table("subscriptions") \
+                .select("cycle_end_date, last_status") \
+                .eq("contact_email", em) \
+                .eq("last_status", "active") \
+                .execute()
+            for row in (r.data or []):
+                end_raw = row.get("cycle_end_date")
+                if end_raw and isinstance(end_raw, str):
+                    try:
+                        todas_datas.append(date.fromisoformat(end_raw))
+                    except ValueError:
+                        pass
+        except Exception as e:
+            print(f"❌ Erro ao buscar expiração subscriptions ({em}): {e}")
+
+        # Antigo — memberkit_members.expires_at
+        try:
+            r = supabase_old.table("memberkit_members") \
+                .select("expires_at, status") \
+                .eq("email", em) \
+                .eq("status", "active") \
+                .execute()
+            for row in (r.data or []):
+                end_raw = row.get("expires_at")
+                if end_raw and isinstance(end_raw, str):
+                    try:
+                        dt = datetime.fromisoformat(end_raw.replace("Z", "+00:00"))
+                        todas_datas.append(dt.astimezone(timezone.utc).date())
+                    except ValueError:
+                        pass
+        except Exception as e:
+            print(f"❌ Erro ao buscar expiração memberkit ({em}): {e}")
+
+    if not todas_datas:
         return None
 
-    return (max(datas) - hoje).days
+    return (max(todas_datas) - hoje).days
 
 
 # ─────────────────────────────────────────────
