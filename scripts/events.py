@@ -1,6 +1,6 @@
 import discord
 import asyncio
-from database_consult import consultar_aluno_por_email, consultar_expiracao_em_dias, consultar_cargos_por_email
+from database_consult import consultar_aluno_por_email
 from discord.ext import tasks
 from datetime import time, datetime, timedelta
 
@@ -209,20 +209,10 @@ def setup_events(context):
                             tickets_verificacao_ativa.discard(user_id)
                             return
                         
-                        # Adicionar cargo base de aluno
+                        # Adicionar cargo
                         role = guild.get_role(ROLE_ID_ALUNO)
                         if role:
                             await member.add_roles(role)
-
-                        # Adicionar cargos de curso (EsPCEx, ESA, EFOMM, etc.)
-                        cargos_curso = await asyncio.to_thread(consultar_cargos_por_email, email)
-                        cargos_adicionados = []
-                        for cargo_id in cargos_curso:
-                            cargo = guild.get_role(cargo_id)
-                            if cargo:
-                                await member.add_roles(cargo)
-                                cargos_adicionados.append(cargo.name)
-                                print(f"🎖️ Cargo de curso adicionado: {cargo.name} → {message.author}")
                         
                         # Salvar verificação
                         await salvar_verificacao(
@@ -238,22 +228,15 @@ def setup_events(context):
                             description=f"Bem-vindo(a)!",
                             color=discord.Color.green()
                         )
-
+                        
                         embed_sucesso.add_field(
                             name="📧 Email",
                             value=f"`{email}`",
                             inline=False
                         )
-
-                        if cargos_adicionados:
-                            embed_sucesso.add_field(
-                                name="🎓 Cursos identificados",
-                                value="\n".join(f"• {c}" for c in cargos_adicionados),
-                                inline=False
-                            )
-
+                        
                         embed_sucesso.add_field(
-                            name="🔓 Acesso",
+                            name="🎓 Status",
                             value="Você agora tem acesso completo ao servidor!",
                             inline=False
                         )
@@ -327,16 +310,66 @@ def setup_events(context):
 
                         status = await asyncio.to_thread(consultar_aluno_por_email, email)
 
-                        if status != "active":
+                        if status is None:
+                            # Email não encontrado — pode ser erro de sync, NÃO remove o cargo
+                            print(f"⚠️ Email {email} não encontrado — cargo mantido, notificando canal")
+                            from dados import CANAL_VERIFICACOES_PENDENTES
+                            canal = bot.get_channel(CANAL_VERIFICACOES_PENDENTES)
+                            if canal:
+                                embed_alerta = discord.Embed(
+                                    title="⚠️ Aluno não encontrado na base",
+                                    description=(
+                                        f"O email **`{email}`** não foi encontrado em nenhuma base de dados "
+                                        f"durante a verificação automática.\n\n"
+                                        f"**O cargo NÃO foi removido.** Verifique manualmente."
+                                    ),
+                                    color=discord.Color.yellow()
+                                )
+                                embed_alerta.add_field(name="👤 Usuário", value=member.mention, inline=True)
+                                embed_alerta.add_field(name="📧 Email", value=f"`{email}`", inline=True)
+                                embed_alerta.set_footer(text="Verificação automática")
+                                try:
+                                    await canal.send(embed=embed_alerta)
+                                except Exception as e:
+                                    print(f"❌ Erro ao notificar canal: {e}")
+                            # Não deleta da tabela verificacoes, não remove cargo
+
+                        elif status == "inactive":
+                            # Email existe mas inativo — remove cargo e notifica
                             role = guild.get_role(ROLE_ID_ALUNO)
                             if role and role in member.roles:
                                 await member.remove_roles(role)
-                                print(f"🚫 Cargo removido de {member} ({email})")
+                                print(f"🚫 Cargo removido de {member} ({email}) — inativo")
+
+                                try:
+                                    link_renovacao = f"https://seu-bot-questoes.squarecloud.app/renovar?discord_id={discord_id}"
+                                    embed_fim = discord.Embed(
+                                        title="Seu acesso à Tropa foi encerrado.",
+                                        description=(
+                                            "E vou te falar a verdade…\n\n"
+                                            "👉 você vai fazer falta por aqui.\n\n"
+                                            "A Tropa continua.\n"
+                                            "As aulas continuam.\n"
+                                            "A galera continua no ritmo.\n\n"
+                                            "Mas espero que você não pare.\n\n"
+                                            "Que continue estudando.\n"
+                                            "Que continue buscando sua aprovação.\n\n"
+                                            "E se decidir voltar…\n"
+                                            "a Tropa vai estar aqui pra você terminar o que começou.\n\n"
+                                            f"🔗 [Voltar para a Tropa]({link_renovacao})"
+                                        ),
+                                        color=discord.Color.greyple()
+                                    )
+                                    await member.send(embed=embed_fim)
+                                except discord.Forbidden:
+                                    pass
+                                except Exception as e:
+                                    print(f"❌ Erro ao enviar DM de encerramento: {e}")
 
                             supabase.table("verificacoes") \
-                                 .delete() \
-                                 .eq("discord_id", str(discord_id)) \
-                                 .execute()
+                                .delete() \
+                                .eq("discord_id", str(discord_id)) \
+                                .execute()
                     
                     if i + TAMANHO_LOTE < len(verificacoes):
                         await asyncio.sleep(2)

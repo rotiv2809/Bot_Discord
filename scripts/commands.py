@@ -612,4 +612,41 @@ def setup_commands(context):
                 ephemeral=True
             )
             print(f"Erro em criarquestao: {e}")
-    
+
+    @bot.tree.command(name="readicionar", description="Readiciona manualmente um aluno que perdeu o cargo")
+    @app_commands.describe(
+        membro="Membro do Discord",
+        email="Email do aluno"
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def readicionar(interaction: discord.Interaction, membro: discord.Member, email: str):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            guild = interaction.guild
+
+            # Adiciona cargo base de aluno
+            role = guild.get_role(ROLE_ID_ALUNO)
+            if role:
+                await membro.add_roles(role)
+
+            # Salva na tabela verificacoes (upsert para não duplicar)
+            supabase.table("verificacoes").upsert({
+                "discord_id": str(membro.id),
+                "email": email.lower().strip(),
+                "username": str(membro),
+                "guild_id": str(guild.id),
+                "verificado_em": discord.utils.utcnow().isoformat()
+            }, on_conflict="discord_id").execute()
+
+            await interaction.followup.send(
+                f"✅ **{membro.mention}** readicionado com sucesso!\n"
+                f"📧 Email registrado: `{email.lower().strip()}`",
+                ephemeral=True
+            )
+
+            print(f"✅ Readicionado manualmente: {membro} ({email}) por {interaction.user}")
+
+        except Exception as e:
+            await interaction.followup.send(f"❌ Erro: {str(e)}", ephemeral=True)
+            print(f"Erro em /readicionar: {e}")
