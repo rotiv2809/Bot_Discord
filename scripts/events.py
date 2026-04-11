@@ -310,8 +310,16 @@ def setup_events(context):
 
                         status = await asyncio.to_thread(consultar_aluno_por_email, email)
 
-                        if status is None:
-                            # Email não encontrado — pode ser erro de sync, NÃO remove o cargo
+                        if status == "active":
+                            # Ativo — garante que o cargo está presente
+                            role = guild.get_role(ROLE_ID_ALUNO)
+                            if role and role not in member.roles:
+                                await member.add_roles(role)
+                                print(f"✅ Cargo recolocado em {member} ({email}) — estava ativo sem cargo")
+
+                        elif status is None:
+                            # Não encontrado em nenhuma base — pode ser erro de sync
+                            # NÃO remove o cargo, apenas notifica no canal
                             print(f"⚠️ Email {email} não encontrado — cargo mantido, notificando canal")
                             from dados import CANAL_VERIFICACOES_PENDENTES
                             canal = bot.get_channel(CANAL_VERIFICACOES_PENDENTES)
@@ -332,10 +340,9 @@ def setup_events(context):
                                     await canal.send(embed=embed_alerta)
                                 except Exception as e:
                                     print(f"❌ Erro ao notificar canal: {e}")
-                            # Não deleta da tabela verificacoes, não remove cargo
 
                         elif status == "inactive":
-                            # Email existe mas inativo — remove cargo e notifica
+                            # Existe mas inativo — remove cargo e notifica
                             role = guild.get_role(ROLE_ID_ALUNO)
                             if role and role in member.roles:
                                 await member.remove_roles(role)
