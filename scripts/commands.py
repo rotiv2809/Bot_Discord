@@ -31,6 +31,7 @@ def setup_commands(context):
     bot = context['bot']
     supabase = context['supabase']
     tickets_verificacao_ativa = context['tickets_verificacao_ativa']
+    tickets_curso_ativa = context['tickets_curso_ativa']
     questoes_em_criacao = context['questoes_em_criacao']
     CATEGORIA_VERIFICACAO_ID = context['CATEGORIA_VERIFICACAO_ID']
     ROLE_ID_ALUNO = context['ROLE_ID_ALUNO']
@@ -415,59 +416,99 @@ def setup_commands(context):
     async def verificar(interaction: discord.Interaction):
         guild = interaction.guild
         user = interaction.user
-        
-        # Verifica se já tem o cargo de aluno
-        role_aluno = guild.get_role(ROLE_ID_ALUNO)
-        if role_aluno and role_aluno in user.roles:
-            await interaction.response.send_message("❌ Você já está verificado como aluno!", ephemeral=True)
+
+        # Bloqueia uso fora de um servidor
+        if guild is None:
+            await interaction.response.send_message(
+                "❌ Este comando só pode ser usado dentro do servidor!",
+                ephemeral=True
+            )
             return
-        
+
+        role_aluno = guild.get_role(ROLE_ID_ALUNO)
+        ja_eh_aluno = role_aluno and role_aluno in user.roles
+
+        # Verifica se já tem todos os cargos de curso corretos
+        from database_consult import CURSOS_PRINCIPAIS, CURSOS_SECUNDARIOS
+        todos_cargos_curso = set(CURSOS_PRINCIPAIS.values()) | set(CURSOS_SECUNDARIOS.values())
+        tem_cargo_curso = any(r.id in todos_cargos_curso for r in user.roles)
+
         # Responde no servidor
         await interaction.response.send_message(
             "✅ Processo de verificação iniciado!\n\n"
             "📬 **Verifique sua DM** - enviei as instruções por lá.",
             ephemeral=True
         )
-        
+
         # Envia DM para o usuário
         try:
-            embed = discord.Embed(
-                title="🎓 Verificação de Aluno",
-                description=(
-                    "Bem-vindo ao processo de verificação!\n\n"
-                    "Para ter acesso completo ao servidor, você precisa verificar "
-                    "que faz parte da tropa."
-                ),
-                color=discord.Color.blue()
-            )
-            
-            embed.add_field(
-                name="📧 Como funciona?",
-                value=(
-                    "1️⃣ Digite seu **email** aqui na DM\n"
-                    "2️⃣ Verificaremos se você está na base de alunos\n"
-                    "3️⃣ Se aprovado, você receberá o cargo automaticamente"
-                ),
-                inline=False
-            )
-            
-            embed.add_field(
-                name="⚠️ Importante",
-                value=(
-                    "• Use o email cadastrado\n"
-                    "• Responda apenas com o email\n"
-                    "• Exemplo: `tropaehbraba@gmail.com`"
-                ),
-                inline=False
-            )
-            
-            embed.set_footer(text=f"Servidor: {guild.name}")
-            
-            await user.send(embed=embed)
-            
-            # Marca que o usuário está em processo de verificação
-            tickets_verificacao_ativa.add(user.id)
-            print(f"✅ Verificação iniciada via DM: {user.name} ({user.id})")
+            if ja_eh_aluno and tem_cargo_curso:
+                # Já tem cargo de aluno E cargo de curso — apenas informa
+                embed = discord.Embed(
+                    title="✅ Você já está verificado!",
+                    description=(
+                        "Você já possui o cargo de aluno e o cargo do seu curso.\n\n"
+                        "Se acredita que há algum erro, entre em contato com a equipe."
+                    ),
+                    color=discord.Color.green()
+                )
+                embed.set_footer(text=f"Servidor: {guild.name}")
+                await user.send(embed=embed)
+                return
+
+            elif ja_eh_aluno and not tem_cargo_curso:
+                # Tem cargo de aluno mas não tem cargo de curso → fluxo de curso
+                embed = discord.Embed(
+                    title="📋 Identificação de curso",
+                    description=(
+                        "Você já é aluno, mas ainda não identificamos qual curso você está fazendo.\n\n"
+                        "Digite seu **email cadastrado** para que possamos atribuir o cargo do seu curso."
+                    ),
+                    color=discord.Color.blurple()
+                )
+                embed.add_field(
+                    name="⚠️ Importante",
+                    value="• Use o email cadastrado na plataforma\n• Exemplo: `tropaehbraba@gmail.com`",
+                    inline=False
+                )
+                embed.set_footer(text=f"Servidor: {guild.name}")
+                await user.send(embed=embed)
+                tickets_curso_ativa.add(user.id)
+
+            else:
+                # Não é aluno ainda → fluxo normal de verificação
+                embed = discord.Embed(
+                    title="🎓 Verificação de Aluno",
+                    description=(
+                        "Bem-vindo ao processo de verificação!\n\n"
+                        "Para ter acesso completo ao servidor, você precisa verificar "
+                        "que faz parte da tropa."
+                    ),
+                    color=discord.Color.blue()
+                )
+                embed.add_field(
+                    name="📧 Como funciona?",
+                    value=(
+                        "1️⃣ Digite seu **email** aqui na DM\n"
+                        "2️⃣ Verificaremos se você está na base de alunos\n"
+                        "3️⃣ Se aprovado, você receberá o cargo automaticamente"
+                    ),
+                    inline=False
+                )
+                embed.add_field(
+                    name="⚠️ Importante",
+                    value=(
+                        "• Use o email cadastrado\n"
+                        "• Responda apenas com o email\n"
+                        "• Exemplo: `tropaehbraba@gmail.com`"
+                    ),
+                    inline=False
+                )
+                embed.set_footer(text=f"Servidor: {guild.name}")
+                await user.send(embed=embed)
+                tickets_verificacao_ativa.add(user.id)
+
+            print(f"✅ Verificação iniciada via DM: {user.name} ({user.id}) | já_aluno={ja_eh_aluno}")
             
         except discord.Forbidden:
             await interaction.followup.send(
@@ -612,41 +653,4 @@ def setup_commands(context):
                 ephemeral=True
             )
             print(f"Erro em criarquestao: {e}")
-
-    @bot.tree.command(name="readicionar", description="Readiciona manualmente um aluno que perdeu o cargo")
-    @app_commands.describe(
-        membro="Membro do Discord",
-        email="Email do aluno"
-    )
-    @app_commands.default_permissions(administrator=True)
-    async def readicionar(interaction: discord.Interaction, membro: discord.Member, email: str):
-        await interaction.response.defer(ephemeral=True)
-
-        try:
-            guild = interaction.guild
-
-            # Adiciona cargo base de aluno
-            role = guild.get_role(ROLE_ID_ALUNO)
-            if role:
-                await membro.add_roles(role)
-
-            # Salva na tabela verificacoes (upsert para não duplicar)
-            supabase.table("verificacoes").upsert({
-                "discord_id": str(membro.id),
-                "email": email.lower().strip(),
-                "username": str(membro),
-                "guild_id": str(guild.id),
-                "verificado_em": discord.utils.utcnow().isoformat()
-            }, on_conflict="discord_id").execute()
-
-            await interaction.followup.send(
-                f"✅ **{membro.mention}** readicionado com sucesso!\n"
-                f"📧 Email registrado: `{email.lower().strip()}`",
-                ephemeral=True
-            )
-
-            print(f"✅ Readicionado manualmente: {membro} ({email}) por {interaction.user}")
-
-        except Exception as e:
-            await interaction.followup.send(f"❌ Erro: {str(e)}", ephemeral=True)
-            print(f"Erro em /readicionar: {e}")
+    

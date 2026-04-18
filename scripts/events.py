@@ -14,11 +14,9 @@ def setup_events(context):
     bot = context['bot']
     supabase = context['supabase']
     tickets_verificacao_ativa = context['tickets_verificacao_ativa']
+    tickets_curso_ativa = context['tickets_curso_ativa']
     ID_DO_CANAL_VERIFICACOES = context['ID_DO_CANAL_VERIFICACOES']
     ROLE_ID_ALUNO = context['ROLE_ID_ALUNO']
-
-    # Set separado para o fluxo de atribuição de cargo via DM (alunos validados manualmente)
-    tickets_curso_ativa = set()
 
     # IDs de todos os cargos de curso para comparação
     from database_consult import CURSOS_PRINCIPAIS, CURSOS_SECUNDARIOS

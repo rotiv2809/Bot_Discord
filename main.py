@@ -11,7 +11,6 @@ from google.oauth2.service_account import Credentials
 from scripts.events import setup_events
 from scripts.commands import setup_commands
 from scripts.enquete_views import EnqueteView
-from scripts.renovar_redirect import start_web_server
 
 # Variáveis globais
 ID_DO_CANAL_VERIFICACOES = 1450481303354081331
@@ -41,6 +40,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Dicionários compartilhados
 tickets_verificacao_ativa = set()
+tickets_curso_ativa = set()
 questoes_em_criacao = {}
 
 # Contexto global para compartilhar com os módulos
@@ -48,6 +48,7 @@ bot_context = {
     'bot': bot,
     'supabase': supabase,
     'tickets_verificacao_ativa': tickets_verificacao_ativa,
+    'tickets_curso_ativa': tickets_curso_ativa,
     'questoes_em_criacao': questoes_em_criacao,
     'ID_DO_CANAL_VERIFICACOES': ID_DO_CANAL_VERIFICACOES,
     'CATEGORIA_VERIFICACAO_ID': CATEGORIA_VERIFICACAO_ID,
@@ -113,9 +114,6 @@ async def on_ready():
 
 if __name__ == "__main__":
     print("🚀 Iniciando serviços...\n")
-
-    # Inicia o servidor Flask (rastreamento de renovações)
-    start_web_server()
 
     try:
         bot.run(DISCORD_TOKEN)
