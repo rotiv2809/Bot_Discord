@@ -653,4 +653,115 @@ def setup_commands(context):
                 ephemeral=True
             )
             print(f"Erro em criarquestao: {e}")
-    
+
+    @bot.tree.command(name="deletar_registro", description="Remove um aluno da lista de verificações")
+    @app_commands.describe(
+        membro="Membro do Discord",
+        email="Email cadastrado do aluno"
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def deletar_registro(interaction: discord.Interaction, membro: discord.Member, email: str):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            email = email.strip().lower()
+
+            # Tenta deletar por discord_id
+            res_id = supabase.table("verificacoes") \
+                .delete() \
+                .eq("discord_id", str(membro.id)) \
+                .execute()
+
+            # Tenta deletar por email (caso o discord_id não bata)
+            res_email = supabase.table("verificacoes") \
+                .delete() \
+                .eq("email", email) \
+                .execute()
+
+            deletados_id = len(res_id.data) if res_id.data else 0
+            deletados_email = len(res_email.data) if res_email.data else 0
+            total = deletados_id + deletados_email
+
+            if total > 0:
+                await interaction.followup.send(
+                    f"✅ Registro removido com sucesso!\n"
+                    f"👤 Usuário: {membro.mention}\n"
+                    f"📧 Email: `{email}`\n"
+                    f"🗑️ {total} registro(s) deletado(s).",
+                    ephemeral=True
+                )
+                print(f"🗑️ Registro deletado: {membro} ({email}) por {interaction.user}")
+            else:
+                await interaction.followup.send(
+                    f"⚠️ Nenhum registro encontrado para:\n"
+                    f"👤 {membro.mention}\n"
+                    f"📧 `{email}`",
+                    ephemeral=True
+                )
+
+        except Exception as e:
+            await interaction.followup.send(f"❌ Erro: {str(e)}", ephemeral=True)
+            print(f"Erro em /deletar_registro: {e}")
+
+    @bot.tree.command(name="dm_em_massa", description="Envia uma mensagem via DM para um ou mais usuários")
+    @app_commands.describe(
+        usuarios="IDs ou @menções separados por espaço ou vírgula",
+        mensagem="Mensagem a ser enviada"
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def dm_em_massa(interaction: discord.Interaction, usuarios: str, mensagem: str):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            guild = interaction.guild
+
+            # Extrai IDs da string (aceita menções <@123>, IDs puros e vírgulas/espaços)
+            import re
+            ids_raw = re.findall(r'\d{10,}', usuarios)
+
+            if not ids_raw:
+                await interaction.followup.send(
+                    "❌ Nenhum usuário válido encontrado.\n"
+                    "Use IDs ou menções: `123456789, @fulano 987654321`",
+                    ephemeral=True
+                )
+                return
+
+            enviados = []
+            falhas = []
+
+            for user_id_str in ids_raw:
+                user_id = int(user_id_str)
+                member = guild.get_member(user_id)
+
+                if not member:
+                    falhas.append(f"`{user_id}` — não encontrado no servidor")
+                    continue
+
+                try:
+                    embed = discord.Embed(
+                        description=mensagem,
+                        color=discord.Color.blurple()
+                    )
+                    embed.set_footer(text=f"Mensagem enviada pela equipe {guild.name}")
+                    await member.send(embed=embed)
+                    enviados.append(member.mention)
+                    await asyncio.sleep(0.5)  # respeita rate limit
+                except discord.Forbidden:
+                    falhas.append(f"{member.mention} — DMs fechadas")
+                except Exception as e:
+                    falhas.append(f"{member.mention} — erro: {str(e)}")
+
+            # Monta resposta
+            resposta = ""
+            if enviados:
+                resposta += f"✅ **Enviado para {len(enviados)} usuário(s):**\n" + "\n".join(enviados) + "\n\n"
+            if falhas:
+                resposta += f"❌ **Falhas ({len(falhas)}):**\n" + "\n".join(falhas)
+
+            await interaction.followup.send(resposta or "⚠️ Nenhuma mensagem enviada.", ephemeral=True)
+            print(f"📨 DM em massa enviada por {interaction.user} para {len(enviados)} usuário(s)")
+
+        except Exception as e:
+            await interaction.followup.send(f"❌ Erro: {str(e)}", ephemeral=True)
+            print(f"Erro em /dm_em_massa: {e}")

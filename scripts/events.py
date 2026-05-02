@@ -328,10 +328,41 @@ def setup_events(context):
                             tickets_verificacao_ativa.discard(user_id)
                             return
                         
-                        # Adicionar cargo
+                        # Adicionar cargo base de aluno
                         role = guild.get_role(ROLE_ID_ALUNO)
                         if role:
                             await member.add_roles(role)
+
+                        # Adicionar cargos de curso
+                        cargos_curso, alerta_memberkit = await asyncio.to_thread(consultar_cargos_por_email, email)
+                        cargos_adicionados = []
+                        for cargo_id in cargos_curso:
+                            cargo = guild.get_role(cargo_id)
+                            if cargo:
+                                await member.add_roles(cargo)
+                                cargos_adicionados.append(cargo.name)
+                                print(f"🎖️ Cargo de curso adicionado: {cargo.name} → {message.author}")
+
+                        # Se encontrado só no memberkit antigo → notifica canal
+                        if alerta_memberkit:
+                            canal = bot.get_channel(CANAL_VERIFICACOES_PENDENTES)
+                            if canal:
+                                embed_alerta = discord.Embed(
+                                    title="⚠️ Aluno sem registro de curso identificável",
+                                    description=(
+                                        f"O email **`{email}`** foi verificado com sucesso, mas foi encontrado "
+                                        f"**apenas no MemberKit antigo**, sem informação do curso.\n\n"
+                                        f"O cargo de aluno foi dado, mas o cargo de curso não pôde ser atribuído automaticamente."
+                                    ),
+                                    color=discord.Color.yellow()
+                                )
+                                embed_alerta.add_field(name="👤 Usuário", value=member.mention, inline=True)
+                                embed_alerta.add_field(name="📧 Email", value=f"`{email}`", inline=True)
+                                embed_alerta.set_footer(text="Verificação automática — requer ação manual")
+                                try:
+                                    await canal.send(embed=embed_alerta)
+                                except Exception as e:
+                                    print(f"❌ Erro ao notificar canal: {e}")
                         
                         # Salvar verificação
                         await salvar_verificacao(
@@ -344,7 +375,7 @@ def setup_events(context):
                         # Mensagem de sucesso
                         embed_sucesso = discord.Embed(
                             title="✅ Verificação Aprovada!",
-                            description=f"Bem-vindo(a)!",
+                            description="Bem-vindo(a)!",
                             color=discord.Color.green()
                         )
                         
@@ -353,9 +384,22 @@ def setup_events(context):
                             value=f"`{email}`",
                             inline=False
                         )
+
+                        if cargos_adicionados:
+                            embed_sucesso.add_field(
+                                name="🎓 Cursos identificados",
+                                value="\n".join(f"• {c}" for c in cargos_adicionados),
+                                inline=False
+                            )
+                        elif alerta_memberkit:
+                            embed_sucesso.add_field(
+                                name="🎓 Curso",
+                                value="Não foi possível identificar seu curso automaticamente. Nossa equipe irá atribuir o cargo em breve!",
+                                inline=False
+                            )
                         
                         embed_sucesso.add_field(
-                            name="🎓 Status",
+                            name="🔓 Acesso",
                             value="Você agora tem acesso completo ao servidor!",
                             inline=False
                         )
