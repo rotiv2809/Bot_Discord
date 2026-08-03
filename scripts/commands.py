@@ -827,6 +827,28 @@ def setup_commands(context):
                 except Exception as e:
                     falhas.append(f"{member.mention} — erro: {str(e)}")
 
+            # Função interna para garantir que o texto do campo nunca ultrapasse 1024 caracteres (limite estrito da API do Discord)
+            def formatar_valor_campo(lista_itens, max_chars=950):
+                if not lista_itens:
+                    return "Nenhum"
+                
+                linhas_retorno = []
+                tamanho_acumulado = 0
+                
+                for index, item in enumerate(lista_itens):
+                    restantes = len(lista_itens) - index
+                    aviso_resto = f"\n*...e mais {restantes}*"
+                    
+                    # Se adicionar este item junto com a mensagem de "e mais N" estourar o limite seguro
+                    if tamanho_acumulado + len(item) + len(aviso_resto) + 2 > max_chars:
+                        linhas_retorno.append(f"*...e mais {restantes}*")
+                        break
+                    
+                    linhas_retorno.append(item)
+                    tamanho_acumulado += len(item) + 1
+                    
+                return "\n".join(linhas_retorno)
+
             # Monta o embed de resumo do resultado
             embed = discord.Embed(
                 title="⚙️ Atribuição de Cargo em Massa",
@@ -838,19 +860,19 @@ def setup_commands(context):
             if adicionados:
                 embed.add_field(
                     name=f"✅ Cargo concedido ({len(adicionados)})",
-                    value="\n".join(adicionados[:20]) + (f"\n*...e mais {len(adicionados)-20}*" if len(adicionados) > 20 else ""),
+                    value=formatar_valor_campo(adicionados),
                     inline=False
                 )
             if ja_tinham:
                 embed.add_field(
                     name=f"ℹ️ Já possuíam o cargo ({len(ja_tinham)})",
-                    value="\n".join(ja_tinham[:20]) + (f"\n*...e mais {len(ja_tinham)-20}*" if len(ja_tinham) > 20 else ""),
+                    value=formatar_valor_campo(ja_tinham),
                     inline=False
                 )
             if falhas:
                 embed.add_field(
                     name=f"❌ Falhas ({len(falhas)})",
-                    value="\n".join(falhas[:20]) + (f"\n*...e mais {len(falhas)-20}*" if len(falhas) > 20 else ""),
+                    value=formatar_valor_campo(falhas),
                     inline=False
                 )
 
