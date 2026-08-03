@@ -765,3 +765,98 @@ def setup_commands(context):
         except Exception as e:
             await interaction.followup.send(f"❌ Erro: {str(e)}", ephemeral=True)
             print(f"Erro em /dm_em_massa: {e}")
+
+    @bot.tree.command(name="cargo_massa", description="Atribui um cargo a múltiplos usuários por ID ou menção")
+    @app_commands.describe(
+        cargo="O cargo que será concedido aos usuários",
+        usuarios="IDs dos usuários (separados por vírgula ou espaço) ou @menções"
+    )
+    @app_commands.default_permissions(manage_roles=True)
+    async def cargo_massa(interaction: discord.Interaction, cargo: discord.Role, usuarios: str):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            guild = interaction.guild
+            if not guild:
+                await interaction.followup.send("❌ Este comando só pode ser usado dentro de um servidor!", ephemeral=True)
+                return
+
+            import re
+            # Extrai IDs únicos mantendo a ordem original
+            ids_raw = list(dict.fromkeys(re.findall(r'\d{10,}', usuarios)))
+
+            if not ids_raw:
+                await interaction.followup.send(
+                    "❌ Nenhum ID ou menção de usuário válido foi encontrado.\n"
+                    "Exemplo de uso: `123456789012345678, 987654321098765432` ou `@User1, @User2`",
+                    ephemeral=True
+                )
+                return
+
+            adicionados = []
+            ja_tinham = []
+            falhas = []
+
+            for user_id_str in ids_raw:
+                user_id = int(user_id_str)
+                member = guild.get_member(user_id)
+                
+                # Caso o membro não esteja no cache do bot, busca na API do servidor
+                if not member:
+                    try:
+                        member = await guild.fetch_member(user_id)
+                    except discord.NotFound:
+                        falhas.append(f"`{user_id}` — não encontrado no servidor")
+                        continue
+                    except Exception as e:
+                        falhas.append(f"`{user_id}` — erro ao buscar: {str(e)}")
+                        continue
+
+                # Verifica se já possui o cargo
+                if cargo in member.roles:
+                    ja_tinham.append(member.mention)
+                    continue
+
+                # Tenta adicionar o cargo
+                try:
+                    await member.add_roles(cargo, reason=f"Atribuído em massa por {interaction.user}")
+                    adicionados.append(member.mention)
+                    await asyncio.sleep(0.3)  # Pequena pausa para respeitar o rate limit do Discord
+                except discord.Forbidden:
+                    falhas.append(f"{member.mention} — sem permissão (cargo do bot deve estar acima na hierarquia)")
+                except Exception as e:
+                    falhas.append(f"{member.mention} — erro: {str(e)}")
+
+            # Monta o embed de resumo do resultado
+            embed = discord.Embed(
+                title="⚙️ Atribuição de Cargo em Massa",
+                description=f"**Cargo:** {cargo.mention}\n**Executado por:** {interaction.user.mention}",
+                color=discord.Color.blue(),
+                timestamp=datetime.now()
+            )
+
+            if adicionados:
+                embed.add_field(
+                    name=f"✅ Cargo concedido ({len(adicionados)})",
+                    value="\n".join(adicionados[:20]) + (f"\n*...e mais {len(adicionados)-20}*" if len(adicionados) > 20 else ""),
+                    inline=False
+                )
+            if ja_tinham:
+                embed.add_field(
+                    name=f"ℹ️ Já possuíam o cargo ({len(ja_tinham)})",
+                    value="\n".join(ja_tinham[:20]) + (f"\n*...e mais {len(ja_tinham)-20}*" if len(ja_tinham) > 20 else ""),
+                    inline=False
+                )
+            if falhas:
+                embed.add_field(
+                    name=f"❌ Falhas ({len(falhas)})",
+                    value="\n".join(falhas[:20]) + (f"\n*...e mais {len(falhas)-20}*" if len(falhas) > 20 else ""),
+                    inline=False
+                )
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            print(f"🏷️ Cargo em massa ({cargo.name}) executado por {interaction.user}: {len(adicionados)} adicionados, {len(ja_tinham)} já tinham, {len(falhas)} falhas.")
+
+        except Exception as e:
+            await interaction.followup.send(f"❌ Erro ao processar comando: {str(e)}", ephemeral=True)
+            print(f"Erro em /cargo_massa: {e}")
